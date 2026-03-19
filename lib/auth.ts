@@ -26,7 +26,6 @@ function getAdminEmails(): string[] {
 }
 
 export const authOptions: NextAuthOptions = {
-  trustHost: true, // Required for Vercel and other serverless hosts
   providers: [
     CredentialsProvider({
       name: "credentials",
