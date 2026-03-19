@@ -415,6 +415,20 @@ export function WorkoutLogClient({
     }
   }
 
+  async function handleDeleteTemplateSet(setId: string, exerciseId: string) {
+    if (!setId) return;
+    try {
+      const res = await fetch(`/api/exercises/${exerciseId}/sets`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ setId }),
+      });
+      if (res.ok) router.refresh();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   const handleMoveExercise = async (exerciseId: string, targetDayId: string) => {
     if (targetDayId === workoutDayId) return;
     setMovingExId(exerciseId);
@@ -632,6 +646,10 @@ export function WorkoutLogClient({
                     const templateSetsList = Array.isArray(ex.templateSets) ? ex.templateSets : [];
                     const orderedSetIds = templateSetsList.map((s) => s && (s as { id?: string }).id).filter(Boolean) as string[];
                     const canReorder = orderedSetIds.length >= 2 && setId;
+                    const canDelete = setId && (existing ? true : orderedSetIds.length > 1);
+                    const onDelete = existing
+                      ? () => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)
+                      : () => handleDeleteTemplateSet(setId, ex.id);
                     const rowContent = (
                       <div
                         key={setId || `set-${tmpl.setNumber}`}
@@ -663,12 +681,12 @@ export function WorkoutLogClient({
                             onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup })}
                           />
                         </div>
-                        {existing && (
+                        {canDelete && (
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 hidden md:inline-flex text-muted-foreground hover:text-destructive shrink-0"
-                            onClick={() => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)}
+                            onClick={onDelete}
                             aria-label="Delete this set"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -676,11 +694,11 @@ export function WorkoutLogClient({
                         )}
                       </div>
                     );
-                    if (existing) {
+                    if (canDelete) {
                       return (
                         <SwipeToDeleteRow
                           key={setId || `set-${tmpl.setNumber}`}
-                          onDelete={() => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)}
+                          onDelete={onDelete}
                           className="rounded-lg"
                         >
                           {rowContent}

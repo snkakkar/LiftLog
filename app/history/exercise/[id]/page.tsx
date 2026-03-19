@@ -19,6 +19,7 @@ export default async function ExerciseHistoryPage({
     select: { name: true },
   });
   if (!exercise) notFound();
+
   const sets = await prisma.loggedSet.findMany({
     where: {
       exerciseId: id,
@@ -26,7 +27,7 @@ export default async function ExerciseHistoryPage({
       workoutSession: { workoutDay: { week: { program: { userId } } } },
     },
     orderBy: { completedAt: "desc" },
-    take: 100,
+    take: 2000,
     include: {
       exercise: { select: { name: true } },
       workoutSession: {

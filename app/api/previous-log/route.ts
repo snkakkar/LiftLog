@@ -77,7 +77,9 @@ export async function GET(request: NextRequest) {
     const withData = setsFromProgram.filter(
       (s) => (s.reps != null && s.reps > 0) || (s.weight != null)
     );
-    return NextResponse.json(withData.slice(0, 20));
+    // Limit to 2 weeks from most recent log (relative window)
+    const limited = limitToTwoWeeksFromLatest(withData);
+    return NextResponse.json(limited.slice(0, 20));
   }
 
   const sets = await prisma.loggedSet.findMany({
@@ -97,5 +99,15 @@ export async function GET(request: NextRequest) {
   const withData = sets.filter(
     (s) => (s.reps != null && s.reps > 0) || (s.weight != null)
   );
-  return NextResponse.json(withData.slice(0, 20));
+  const limited = limitToTwoWeeksFromLatest(withData);
+  return NextResponse.json(limited.slice(0, 20));
+}
+
+/** Keep only sets within 2 weeks of the most recent set (so we always show recent history when it exists). */
+function limitToTwoWeeksFromLatest<T extends { completedAt: Date }>(sets: T[]): T[] {
+  if (sets.length === 0) return [];
+  const latest = new Date(sets[0].completedAt).getTime();
+  const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
+  const cutoff = latest - twoWeeksMs;
+  return sets.filter((s) => new Date(s.completedAt).getTime() >= cutoff);
 }

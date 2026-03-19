@@ -83,3 +83,33 @@ export async function PATCH(
   );
   return NextResponse.json({ ok: true });
 }
+
+/**
+ * DELETE - Remove a template set from an exercise. Body: { setId: string }
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const userId = await requireUserId();
+  const { id: exerciseId } = await params;
+  const exercise = await prisma.exercise.findFirst({
+    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    include: { templateSets: true },
+  });
+  if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+  const body = await request.json().catch(() => ({}));
+  const setId = body.setId as string | undefined;
+  if (!setId || typeof setId !== "string") {
+    return NextResponse.json({ error: "setId required" }, { status: 400 });
+  }
+
+  const valid = exercise.templateSets.some((s) => s.id === setId);
+  if (!valid) {
+    return NextResponse.json({ error: "Set not found" }, { status: 404 });
+  }
+
+  await prisma.exerciseSet.delete({ where: { id: setId } });
+  return NextResponse.json({ ok: true });
+}

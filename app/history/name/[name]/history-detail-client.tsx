@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
-import { Trash2 } from "lucide-react";
+import { Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -158,6 +158,14 @@ function getPlateauAdvice(
   }
 }
 
+const CHUNK_SIZE = 20;
+const TIMEFRAME_OPTIONS = [
+  { value: 30, label: "30 days" },
+  { value: 90, label: "90 days" },
+  { value: 180, label: "180 days" },
+  { value: 365, label: "Past year" },
+] as const;
+
 export function HistoryDetailClient({
   exerciseName,
   sets,
@@ -171,6 +179,8 @@ export function HistoryDetailClient({
 }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [timeframeDays, setTimeframeDays] = useState(365);
+  const [expandedChunks, setExpandedChunks] = useState<Set<number>>(new Set([0]));
 
   const handleDeleteSet = async (setId: string) => {
     setDeletingId(setId);
@@ -182,13 +192,20 @@ export function HistoryDetailClient({
     }
   };
 
+  const setsFilteredByTimeframe = useMemo(() => {
+    if (sets.length === 0) return [];
+    const latest = new Date(sets[0].completedAt).getTime();
+    const cutoff = latest - timeframeDays * 24 * 60 * 60 * 1000;
+    return sets.filter((s) => new Date(s.completedAt).getTime() >= cutoff);
+  }, [sets, timeframeDays]);
+
   const setsWithVolume = useMemo(() => {
-    return sets.filter((s) => {
+    return setsFilteredByTimeframe.filter((s) => {
       const reps = s.reps ?? 0;
       const effectiveWeight = getEffectiveWeight(s.weight, s.completedAt, bodyLogs, exerciseName);
       return reps > 0 && (effectiveWeight ?? 0) > 0;
     });
-  }, [sets, bodyLogs, exerciseName]);
+  }, [setsFilteredByTimeframe, bodyLogs, exerciseName]);
 
   const byDate = useMemo(() => {
     const acc: Record<string, SetRecord[]> = {};
@@ -378,58 +395,119 @@ export function HistoryDetailClient({
     ? `Your latest log${profileContext.logDate ? ` (${formatDate(profileContext.logDate)})` : ""}: ${profileContext.weightLb != null ? `${profileContext.weightLb} lb` : ""}${profileContext.weightLb != null && profileContext.bodyFatPct != null ? ", " : ""}${profileContext.bodyFatPct != null ? `${profileContext.bodyFatPct}% body fat` : ""}.`
     : null;
 
+  const allSetsOrdered = useMemo(
+    () => [...sets].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()),
+    [sets]
+  );
+  const chunks = useMemo(() => {
+    const result: SetRecord[][] = [];
+    for (let i = 0; i < allSetsOrdered.length; i += CHUNK_SIZE) {
+      result.push(allSetsOrdered.slice(i, i + CHUNK_SIZE));
+    }
+    return result;
+  }, [allSetsOrdered]);
+
+  const toggleChunk = (idx: number) => {
+    setExpandedChunks((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
       {/* On mobile: chart/summary first (order-1), history second (order-2). On lg: natural order. */}
       <div className="lg:col-span-2 space-y-3 order-2 lg:order-1">
-        {byDate.dates.map((date) => (
-          <div key={date}>
-            <p className="text-sm font-semibold text-muted-foreground mb-2">
-              {formatDate(date)}
-            </p>
-            <ul className="space-y-1">
-              {(byDate.byDate[date] ?? [])
-                .sort((a, b) => a.setNumber - b.setNumber)
-                .map((s) => (
-                  <li key={s.id}>
-                    <SwipeToDeleteRow
-                      onDelete={() => handleDeleteSet(s.id)}
-                      disabled={deletingId === s.id}
-                      className="rounded-md"
-                    >
-                      <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1 px-2 -mx-2">
-                        <span className="text-muted-foreground">Set {s.setNumber}</span>
-                        <span>
-                          {s.reps ?? "—"}×{s.weight ?? "—"} lb
-                          {s.rir != null ? ` RIR${s.rir}` : ""}
-                        </span>
-                        {s.workoutSession?.workoutDay?.week?.program?.name && (
-                          <span className="text-muted-foreground truncate">
-                            · {s.workoutSession.workoutDay.week.program.name}
-                          </span>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0 hidden md:inline-flex ml-auto"
-                          onClick={() => handleDeleteSet(s.id)}
+        <p className="text-sm font-semibold text-muted-foreground">Logged sets (newest first)</p>
+        {chunks.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">No sets logged yet.</p>
+        ) : (
+          chunks.map((chunk, idx) => {
+            const isExpanded = expandedChunks.has(idx);
+            const start = idx * CHUNK_SIZE + 1;
+            const end = idx * CHUNK_SIZE + chunk.length;
+            const dateRange =
+              chunk.length > 0
+                ? `${formatDate(chunk[chunk.length - 1].completedAt)} – ${formatDate(chunk[0].completedAt)}`
+                : "";
+            return (
+              <div key={idx} className="border border-border rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-left hover:bg-muted/50 transition-colors"
+                  onClick={() => toggleChunk(idx)}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>Sets {start}–{end}</span>
+                  <span className="text-muted-foreground text-xs">({dateRange})</span>
+                </button>
+                {isExpanded && (
+                  <ul className="space-y-1 px-3 pb-3">
+                    {chunk.map((s) => (
+                      <li key={s.id}>
+                        <SwipeToDeleteRow
+                          onDelete={() => handleDeleteSet(s.id)}
                           disabled={deletingId === s.id}
-                          aria-label="Delete this set"
+                          className="rounded-md"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </SwipeToDeleteRow>
-                  </li>
-                ))}
-            </ul>
-          </div>
-        ))}
+                          <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1 px-2 -mx-2">
+                            <span className="text-muted-foreground">Set {s.setNumber}</span>
+                            <span>
+                              {s.reps ?? "—"}×{s.weight ?? "—"} lb
+                              {s.rir != null ? ` RIR${s.rir}` : ""}
+                            </span>
+                            <span className="text-muted-foreground text-xs">
+                              {formatDate(s.completedAt)}
+                            </span>
+                            {s.workoutSession?.workoutDay?.week?.program?.name && (
+                              <span className="text-muted-foreground truncate">
+                                · {s.workoutSession.workoutDay.week.program.name}
+                              </span>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0 hidden md:inline-flex ml-auto"
+                              onClick={() => handleDeleteSet(s.id)}
+                              disabled={deletingId === s.id}
+                              aria-label="Delete this set"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </SwipeToDeleteRow>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
       <div className="space-y-2 order-1 lg:order-2">
         <Card>
           <CardContent className="pt-3 pb-3">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Volume (weight × reps) by session</p>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-muted-foreground">Volume (weight × reps) by session</p>
+              <select
+                value={timeframeDays}
+                onChange={(e) => setTimeframeDays(Number(e.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+              >
+                {TIMEFRAME_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={chartData} margin={{ top: 5, right: 42, left: 5, bottom: 5 }}>
@@ -499,7 +577,9 @@ export function HistoryDetailClient({
         </Card>
         <Card>
           <CardContent className="pt-3 pb-3">
-            <p className="text-xs font-medium text-muted-foreground mb-1">Summary</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">
+              Summary ({TIMEFRAME_OPTIONS.find((o) => o.value === timeframeDays)?.label ?? timeframeDays + " days"})
+            </p>
             <p className="text-sm">{summaryText}</p>
             <p className="text-sm font-medium text-primary mt-2">{insightText}</p>
             {profileLine && (

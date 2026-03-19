@@ -18,7 +18,10 @@ export default async function ExerciseNameHistoryPage({
   if (!name) notFound();
 
   const exercises = await prisma.exercise.findMany({
-    where: { name, workoutDay: { week: { program: { userId } } } },
+    where: {
+      name: { equals: name, mode: "insensitive" },
+      workoutDay: { week: { program: { userId } } },
+    },
     select: { id: true },
   });
   const exerciseIds = exercises.map((e) => e.id);
@@ -31,7 +34,7 @@ export default async function ExerciseNameHistoryPage({
       workoutSession: { workoutDay: { week: { program: { userId } } } },
     },
     orderBy: { completedAt: "desc" },
-    take: 200,
+    take: 2000,
     include: {
       exercise: { select: { name: true } },
       workoutSession: {

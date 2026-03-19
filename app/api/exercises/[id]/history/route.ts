@@ -9,6 +9,7 @@ export async function GET(
 ) {
   const userId = await requireUserId();
   const { id: exerciseId } = await params;
+
   const sets = await prisma.loggedSet.findMany({
     where: {
       exerciseId,
@@ -16,7 +17,7 @@ export async function GET(
       workoutSession: { workoutDay: { week: { program: { userId } } } },
     },
     orderBy: { completedAt: "desc" },
-    take: 100,
+    take: 500,
     include: {
       exercise: { select: { name: true } },
       workoutSession: {
