@@ -8,7 +8,8 @@ import { classifyRows } from "./classifyRows";
 import { buildProgram } from "./buildProgram";
 import { validateImportProgram } from "./validateImport";
 import { getText } from "./normalizeValues";
-import { looksHierarchical, detectTableHeader } from "./detectLayout";
+import { detectTableHeader } from "./detectLayout";
+import { isDayLabel } from "./classifyRows";
 import { parseTableToProgram } from "./parseTable";
 import type { ImportProgram } from "./types";
 
@@ -21,8 +22,8 @@ export interface ParseOptions {
 
 /**
  * Parse sheet rows into ImportProgram. Tries multiple strategies:
- * 1. Hierarchical (Week N, day labels) -> existing Min-Max style parser
- * 2. Table with header row (Exercise, Reps, Weight, etc.) -> flexible column mapping
+ * 1. Hierarchical (Min-Max: Week N, day labels) - ALWAYS try first for Min-Max compatibility
+ * 2. Table with header row (Exercise, Reps, Weight, etc.)
  * 3. Fallback: no header, assume columns 0=Exercise, 1=Reps, 2=Weight
  */
 export function parseWorkbookToProgram(
@@ -30,17 +31,37 @@ export function parseWorkbookToProgram(
   options?: ParseOptions
 ): ImportProgram {
   const rows = Array.isArray(sheetRows) ? sheetRows : [];
+  const headerLike = /^(exercise|week|day|set|rep|weight|load|working|movement|name)$/i;
+  function findProgramName(): string | null {
+    for (let r = 0; r < Math.min(rows.length, 10); r++) {
+      const row = rows[r] ?? [];
+      for (let c = 0; c < Math.min(row.length, 5); c++) {
+        const t = getText(row[c]).trim();
+        if (t && t.length > 1 && !headerLike.test(t) && !/^week\s*\d+$/i.test(t) && !isDayLabel(t)) {
+          return t;
+        }
+      }
+    }
+    return rows[0]?.[0] != null ? getText(rows[0][0]).trim() || null : null;
+  }
   const programName =
     options?.programName ??
-    (rows[0]?.[0] != null ? getText(rows[0][0]).trim() : null) ??
+    findProgramName() ??
     "Imported Program";
 
   let program: ImportProgram;
 
-  if (looksHierarchical(rows)) {
-    const classified = classifyRows(rows, { skipFirstRows: 0 });
-    program = buildProgram(rows, classified, programName);
+  // Strategy 1: Always try hierarchical (Min-Max) first - it was the original working parser
+  const classified = classifyRows(rows, { skipFirstRows: 0 });
+  const hierarchicalProgram = buildProgram(rows, classified, programName);
+  const hierarchicalValid =
+    hierarchicalProgram.weeks.length > 0 &&
+    hierarchicalProgram.weeks.some((w) => (w.days?.length ?? 0) > 0);
+
+  if (hierarchicalValid) {
+    program = hierarchicalProgram;
   } else {
+    // Strategy 2 & 3: Fall back to table parser only if hierarchical produced nothing
     const columnMap = detectTableHeader(rows);
     if (columnMap) {
       program = parseTableToProgram({

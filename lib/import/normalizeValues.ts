@@ -13,6 +13,12 @@ export type CellValue = string | number | boolean | undefined | null;
 export function getText(val: CellValue): string {
   if (val == null) return "";
   if (typeof val === "string") return val.trim();
+  if (typeof val === "object" && val !== null && "richText" in val && Array.isArray((val as { richText: { text?: string }[] }).richText)) {
+    return (val as { richText: { text?: string }[] })
+      .richText.map((r) => r.text ?? "")
+      .join("")
+      .trim();
+  }
   if (typeof val === "number") {
     if (Number.isNaN(val)) return "";
     if (val > 100000 || val < -1000) {

@@ -107,6 +107,11 @@ export function buildProgram(
     switch (cr.classification) {
       case "week_header": {
         const weekNum = typeof cr.payload === "number" ? cr.payload : 1;
+        // If we already have this week (e.g. "Week 1" repeated in the sheet), reuse it instead of creating duplicates
+        if (currentWeek && currentWeek.weekNumber === weekNum) {
+          // Same week repeated - don't create a new one
+          break;
+        }
         currentWeek = { weekNumber: weekNum, days: [] };
         weeks.push(currentWeek);
         dayNumber = 0;
@@ -116,14 +121,21 @@ export function buildProgram(
 
       case "day_header": {
         if (!currentWeek) break;
-        dayNumber += 1;
-        const dayName = (typeof cr.payload === "string" ? cr.payload : getText(row[0]) || getText(row[1]) || getText(row[2]) || `Day ${dayNumber}`) as string;
-        currentDay = {
-          dayNumber,
-          name: dayName,
-          exercises: [],
-        };
-        currentWeek.days.push(currentDay);
+        const dayName = (typeof cr.payload === "string" ? cr.payload : getText(row[0]) || getText(row[1]) || getText(row[2]) || `Day ${dayNumber + 1}`) as string;
+        const dayNameNorm = dayName.toLowerCase().trim();
+        // If we already have a day with this name in the current week, add exercise to it (handles "Full Body" repeated on each row)
+        const existingDay = currentWeek.days.find((d) => (d.name ?? "").toLowerCase().trim() === dayNameNorm);
+        if (existingDay) {
+          currentDay = existingDay;
+        } else {
+          dayNumber += 1;
+          currentDay = {
+            dayNumber,
+            name: dayName,
+            exercises: [],
+          };
+          currentWeek.days.push(currentDay);
+        }
         const firstExName = getExerciseNameFromDayRow(row, dayName);
         if (firstExName) {
           if (offset === null) offset = detectOffset(row);

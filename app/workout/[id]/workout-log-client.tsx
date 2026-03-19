@@ -41,6 +41,12 @@ type PreviousLog = {
   completedAt: string;
 }[];
 
+function safeExerciseName(name: unknown): string {
+  if (typeof name === "string") return name;
+  const s = String(name ?? "");
+  return s.replace(/^\[object \w+\]$/, "") || "Exercise";
+}
+
 function repRangeLabel(targetReps: number | null): string {
   if (targetReps == null || targetReps < 1) return "";
   const low = Math.max(1, targetReps - 2);
@@ -159,7 +165,8 @@ export function WorkoutLogClient({
       const id = ex?.id;
       if (!id) return;
       const params = new URLSearchParams({ exerciseId: id });
-      if (ex.name?.trim()) params.set("exerciseName", ex.name.trim());
+      const n = safeExerciseName(ex.name);
+      if (n.trim()) params.set("exerciseName", n.trim());
       if (programId) params.set("programId", programId);
       if (currentWeekNumber != null) params.set("currentWeekNumber", String(currentWeekNumber));
       fetch(`/api/previous-log?${params}`)
@@ -430,7 +437,7 @@ export function WorkoutLogClient({
 
   const getReplaceSelectValue = (ex: Exercise) => {
     const override = overridesByExercise[ex.id];
-    if (override === undefined || override === ex.name) return "";
+    if (override === undefined || override === safeExerciseName(ex.name)) return "";
     if (override === ex.substitution1) return "sub1";
     if (override === ex.substitution2) return "sub2";
     return "custom";
@@ -444,7 +451,7 @@ export function WorkoutLogClient({
         const logged = loggedByExercise[ex.id] ?? [];
         const previous = previousByExercise[ex.id] ?? [];
         const isExpanded = expandedExercise === ex.id;
-        const displayName = overridesByExercise[ex.id] ?? ex.name;
+        const displayName = overridesByExercise[ex.id] ?? safeExerciseName(ex.name);
         const showCustomInput = customReplaceExId === ex.id;
         return (
           <div
@@ -514,7 +521,7 @@ export function WorkoutLogClient({
                           }
                         }}
                       >
-                        <option value="">Original: {ex.name}</option>
+                        <option value="">Original: {safeExerciseName(ex.name)}</option>
                         {ex.substitution1 && (
                           <option value="sub1">{ex.substitution1}</option>
                         )}
@@ -561,7 +568,7 @@ export function WorkoutLogClient({
                     asChild
                   >
                     <Link
-                      href={`/history/name/${encodeURIComponent(ex.name)}`}
+                      href={`/history/name/${encodeURIComponent(safeExerciseName(ex.name))}`}
                       onClick={(e) => e.stopPropagation()}
                       className="flex items-center"
                     >

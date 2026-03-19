@@ -17,8 +17,24 @@ function cellToValue(val: ExcelJS.CellValue): string | number {
   if (typeof val === "number" && !Number.isNaN(val)) return val;
   if (typeof val === "string") return val;
   if (val instanceof Date) return val.toISOString().slice(0, 10);
-  if (typeof val === "object" && "result" in val && typeof (val as { result: number }).result === "number") {
-    return (val as { result: number }).result;
+  if (typeof val === "object") {
+    if ("result" in val && typeof (val as { result: number }).result === "number") {
+      return (val as { result: number }).result;
+    }
+    // ExcelJS RichText: { richText: [{ text: "..." }, ...] }
+    if ("richText" in val && Array.isArray((val as { richText: { text?: string }[] }).richText)) {
+      const text = (val as { richText: { text?: string }[] })
+        .richText.map((r) => r.text ?? "")
+        .join("");
+      return text || "";
+    }
+    // ExcelJS formula/other: try .text or .value
+    if ("text" in val && typeof (val as { text: string }).text === "string") {
+      return (val as { text: string }).text;
+    }
+    if ("value" in val && (typeof (val as { value: unknown }).value === "string" || typeof (val as { value: unknown }).value === "number")) {
+      return (val as { value: string | number }).value;
+    }
   }
   return String(val);
 }

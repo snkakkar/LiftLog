@@ -182,12 +182,14 @@ export default function ImportPage() {
                               )}
                             </div>
                             <ul className="space-y-1.5">
-                              {d.exercises.map((e, idx) => (
+                              {d.exercises.map((e, idx) => {
+                                const exName = typeof e.name === "string" ? e.name : String(e?.name ?? "").replace(/^\[object \w+\]$/, "") || "Exercise";
+                                return (
                                 <li
                                   key={idx}
                                   className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
                                 >
-                                  <span className="font-medium">{e.name}</span>
+                                  <span className="font-medium">{exName}</span>
                                   {e.sets.length > 0 && (
                                     <span className="text-muted-foreground text-xs">
                                       {e.sets.some((s) => s.reps != null || s.weight != null || s.rir != null)
@@ -205,7 +207,7 @@ export default function ImportPage() {
                                     </span>
                                   )}
                                 </li>
-                              ))}
+                              );})}
                             </ul>
                           </div>
                         ))}
