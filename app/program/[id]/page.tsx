@@ -1,20 +1,8 @@
 import { notFound } from "next/navigation";
 import { ProgramActions } from "./program-actions";
 import { ProgramWeeksView } from "./program-weeks-view";
-import { prisma } from "@/lib/db";
+import { getProgramById } from "@/lib/repositories/programs";
 import { getCurrentUserId } from "@/lib/auth";
-
-async function getProgram(id: string, userId: string) {
-  return prisma.program.findFirst({
-    where: { id, userId },
-    include: {
-      weeks: {
-        orderBy: { weekNumber: "asc" },
-        include: { days: { orderBy: { dayNumber: "asc" } } },
-      },
-    },
-  });
-}
 
 export default async function ProgramPage({
   params,
@@ -24,7 +12,7 @@ export default async function ProgramPage({
   const userId = await getCurrentUserId();
   if (!userId) notFound();
   const { id } = await params;
-  const program = await getProgram(id, userId);
+  const program = await getProgramById(id, userId);
   if (!program) notFound();
 
   const weeks = (program.weeks ?? []).map((w) => ({

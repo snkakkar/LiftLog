@@ -1,25 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUserId } from "@/lib/auth";
+import { getProgramsForUser } from "@/lib/repositories/programs";
 
 export async function GET(request: NextRequest) {
   const userId = await requireUserId();
   const archivedOnly = request.nextUrl.searchParams.get("archived") === "1";
-  const programs = await prisma.program.findMany({
-    where: {
-      userId,
-      ...(archivedOnly ? { archivedAt: { not: null } } : { archivedAt: null }),
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      weeks: {
-        orderBy: { weekNumber: "asc" },
-        include: {
-          days: { orderBy: { dayNumber: "asc" } },
-        },
-      },
-    },
-  });
+  const programs = await getProgramsForUser(userId, archivedOnly ? "archived" : "active");
   return NextResponse.json(programs);
 }
 

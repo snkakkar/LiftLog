@@ -5,28 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Dumbbell, Plus, Archive, AlertCircle } from "lucide-react";
 import { ProgramsList } from "./programs-list";
 import { CreateProgramButton } from "./create-program-button";
-import { prisma } from "@/lib/db";
+import { getProgramsForUser } from "@/lib/repositories/programs";
 import { getCurrentUserId } from "@/lib/auth";
 
 export default async function HomePage() {
   const userId = await getCurrentUserId();
   if (!userId) redirect("/login");
 
-  let programs: Awaited<ReturnType<typeof prisma.program.findMany>> = [];
-  let archivedPrograms: Awaited<ReturnType<typeof prisma.program.findMany>> = [];
+  let programs: Awaited<ReturnType<typeof getProgramsForUser>> = [];
+  let archivedPrograms: Awaited<ReturnType<typeof getProgramsForUser>> = [];
   let loadError: string | null = null;
 
   try {
-    const all = await prisma.program.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      include: {
-        weeks: {
-          orderBy: { weekNumber: "asc" },
-          include: { days: { orderBy: { dayNumber: "asc" } } },
-        },
-      },
-    });
+    const all = await getProgramsForUser(userId, "all");
     programs = all.filter((p) => !p.archivedAt);
     archivedPrograms = all.filter((p) => p.archivedAt);
   } catch (e) {

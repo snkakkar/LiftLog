@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { requireUserId } from "@/lib/auth";
+import { requireUserIdErrorResponse } from "@/lib/http/api";
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -32,9 +33,8 @@ export async function PATCH(request: NextRequest) {
     await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
     return NextResponse.json({ success: true });
   } catch (e) {
-    if (e instanceof Error && e.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const res = requireUserIdErrorResponse(e);
+    if (res) return res;
     throw e;
   }
 }

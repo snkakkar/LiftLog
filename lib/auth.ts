@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 
 declare module "next-auth" {
@@ -78,10 +79,17 @@ export async function requireUserId(): Promise<string> {
   return id;
 }
 
-/** Throws if not an admin. Use in admin-only routes. */
+/** Throws if not an admin. Use in admin-only API routes. */
 export async function requireAdmin(): Promise<{ userId: string; email: string }> {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id || !session.user.email) throw new Error("Unauthorized");
   if (!session.user.isAdmin) throw new Error("Forbidden: admin only");
   return { userId: session.user.id, email: session.user.email };
+}
+
+/** Redirects to login or home if not admin. Use in admin-only pages. */
+export async function ensureAdminPage(): Promise<void> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id || !session.user.email) redirect("/login");
+  if (!session.user.isAdmin) redirect("/");
 }

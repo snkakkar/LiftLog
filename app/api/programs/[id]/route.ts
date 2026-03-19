@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUserId } from "@/lib/auth";
+import { getProgramById } from "@/lib/repositories/programs";
 
 export async function GET(
   _request: NextRequest,
@@ -8,17 +9,7 @@ export async function GET(
 ) {
   const userId = await requireUserId();
   const { id } = await params;
-  const program = await prisma.program.findUnique({
-    where: { id, userId },
-    include: {
-      weeks: {
-        orderBy: { weekNumber: "asc" },
-        include: {
-          days: { orderBy: { dayNumber: "asc" } },
-        },
-      },
-    },
-  });
+  const program = await getProgramById(id, userId);
   if (!program) {
     return NextResponse.json({ error: "Program not found" }, { status: 404 });
   }

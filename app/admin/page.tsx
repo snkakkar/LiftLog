@@ -1,12 +1,8 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { ensureAdminPage } from "@/lib/auth";
 import { AdminDashboard } from "./admin-dashboard";
 
 export default async function AdminPage() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id || !session.user.email) redirect("/login");
-  if (!session.user.isAdmin) redirect("/");
+  await ensureAdminPage();
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
