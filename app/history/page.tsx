@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { History } from "lucide-react";
+import { HistoryExerciseList } from "./history-exercise-list";
 import { prisma } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth";
 
@@ -61,17 +60,7 @@ export default async function HistoryPage() {
           </CardContent>
         </Card>
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {byName.map((ex) => (
-            <li key={ex.name}>
-              <Button variant="ghost" className="w-full justify-start" asChild>
-                <Link href={`/history/name/${encodeURIComponent(ex.name)}`}>
-                  {ex.name}
-                </Link>
-              </Button>
-            </li>
-          ))}
-        </ul>
+        <HistoryExerciseList exercises={byName} />
       )}
     </div>
   );

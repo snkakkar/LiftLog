@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 import { Trash2 } from "lucide-react";
 import {
   LineChart,
@@ -379,7 +380,8 @@ export function HistoryDetailClient({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-      <div className="lg:col-span-2 space-y-3">
+      {/* On mobile: chart/summary first (order-1), history second (order-2). On lg: natural order. */}
+      <div className="lg:col-span-2 space-y-3 order-2 lg:order-1">
         {byDate.dates.map((date) => (
           <div key={date}>
             <p className="text-sm font-semibold text-muted-foreground mb-2">
@@ -389,34 +391,42 @@ export function HistoryDetailClient({
               {(byDate.byDate[date] ?? [])
                 .sort((a, b) => a.setNumber - b.setNumber)
                 .map((s) => (
-                  <li key={s.id} className="text-sm flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="text-muted-foreground">Set {s.setNumber}</span>
-                    <span>
-                      {s.reps ?? "—"}×{s.weight ?? "—"} lb
-                      {s.rir != null ? ` RIR${s.rir}` : ""}
-                    </span>
-                    {s.workoutSession?.workoutDay?.week?.program?.name && (
-                      <span className="text-muted-foreground truncate">
-                        · {s.workoutSession.workoutDay.week.program.name}
-                      </span>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={() => handleDeleteSet(s.id)}
+                  <li key={s.id}>
+                    <SwipeToDeleteRow
+                      onDelete={() => handleDeleteSet(s.id)}
                       disabled={deletingId === s.id}
-                      aria-label="Delete this set"
+                      className="rounded-md"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                      <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1 px-2 -mx-2">
+                        <span className="text-muted-foreground">Set {s.setNumber}</span>
+                        <span>
+                          {s.reps ?? "—"}×{s.weight ?? "—"} lb
+                          {s.rir != null ? ` RIR${s.rir}` : ""}
+                        </span>
+                        {s.workoutSession?.workoutDay?.week?.program?.name && (
+                          <span className="text-muted-foreground truncate">
+                            · {s.workoutSession.workoutDay.week.program.name}
+                          </span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0 hidden md:inline-flex ml-auto"
+                          onClick={() => handleDeleteSet(s.id)}
+                          disabled={deletingId === s.id}
+                          aria-label="Delete this set"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </SwipeToDeleteRow>
                   </li>
                 ))}
             </ul>
           </div>
         ))}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 order-1 lg:order-2">
         <Card>
           <CardContent className="pt-3 pb-3">
             <p className="text-xs font-medium text-muted-foreground mb-2">Volume (weight × reps) by session</p>

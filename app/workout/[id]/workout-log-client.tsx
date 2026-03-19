@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, ChevronDown, ChevronUp, Replace, Minus, Plus, GripVertical, Check, Trash2, ArrowRightCircle, History } from "lucide-react";
+import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 
 type TemplateSet = {
   id: string;
@@ -397,6 +398,23 @@ export function WorkoutLogClient({
     }
   };
 
+  async function handleDeleteLoggedSet(setId: string, exerciseId: string, setNumber: number) {
+    try {
+      const res = await fetch(`/api/logged-sets/${setId}`, { method: "DELETE" });
+      if (!res.ok) return;
+      setLoggedByExercise((prev) => {
+        const list = prev[exerciseId] ?? [];
+        return {
+          ...prev,
+          [exerciseId]: list.filter((s) => s.setNumber !== setNumber),
+        };
+      });
+      setLastSavedAt(new Date());
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   const handleMoveExercise = async (exerciseId: string, targetDayId: string) => {
     if (targetDayId === workoutDayId) return;
     setMovingExId(exerciseId);
@@ -614,7 +632,7 @@ export function WorkoutLogClient({
                     const templateSetsList = Array.isArray(ex.templateSets) ? ex.templateSets : [];
                     const orderedSetIds = templateSetsList.map((s) => s && (s as { id?: string }).id).filter(Boolean) as string[];
                     const canReorder = orderedSetIds.length >= 2 && setId;
-                    const wrapper = (
+                    const rowContent = (
                       <div
                         key={setId || `set-${tmpl.setNumber}`}
                         onDragOver={canReorder ? (e) => handleSetDragOver(e, setId) : undefined}
@@ -645,9 +663,31 @@ export function WorkoutLogClient({
                             onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup })}
                           />
                         </div>
+                        {existing && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 hidden md:inline-flex text-muted-foreground hover:text-destructive shrink-0"
+                            onClick={() => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)}
+                            aria-label="Delete this set"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     );
-                    return wrapper;
+                    if (existing) {
+                      return (
+                        <SwipeToDeleteRow
+                          key={setId || `set-${tmpl.setNumber}`}
+                          onDelete={() => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)}
+                          className="rounded-lg"
+                        >
+                          {rowContent}
+                        </SwipeToDeleteRow>
+                      );
+                    }
+                    return rowContent;
                   })}
                 </div>
                 <Button
@@ -799,7 +839,7 @@ function SetRow({
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-9 w-9 shrink-0 hidden md:flex"
             onClick={() => setReps((r) => dec(r, 1))}
           >
             <Minus className="h-4 w-4" />
@@ -807,8 +847,9 @@ function SetRow({
           <Input
             type="number"
             min={0}
+            inputMode="numeric"
             placeholder={targetReps != null ? String(targetReps) : "—"}
-            value={reps ?? ""}
+            value={reps != null ? String(reps) : ""}
             onChange={(e) => setReps(e.target.value ? parseInt(e.target.value, 10) : undefined)}
             className="h-9 flex-1 min-w-0"
           />
@@ -816,7 +857,7 @@ function SetRow({
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-9 w-9 shrink-0 hidden md:flex"
             onClick={() => setReps((r) => inc(r, 1))}
           >
             <Plus className="h-4 w-4" />
@@ -830,7 +871,7 @@ function SetRow({
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-9 w-9 shrink-0 hidden md:flex"
             onClick={() => setWeight((w) => dec(w ?? 0, 2.5, 0))}
           >
             <Minus className="h-4 w-4" />
@@ -839,8 +880,9 @@ function SetRow({
             type="number"
             min={0}
             step={0.5}
+            inputMode="decimal"
             placeholder={targetWeight != null ? String(targetWeight) : "—"}
-            value={weight ?? ""}
+            value={weight != null ? String(weight) : ""}
             onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
             className="h-9 flex-1 min-w-0"
           />
@@ -848,7 +890,7 @@ function SetRow({
             type="button"
             variant="outline"
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-9 w-9 shrink-0 hidden md:flex"
             onClick={() => setWeight((w) => inc(w ?? 0, 2.5))}
           >
             <Plus className="h-4 w-4" />

@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { Providers } from "@/components/providers";
-import { HeaderAuth } from "@/components/header-auth";
+import { NavHeader } from "@/components/nav-header";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -25,6 +25,13 @@ export default async function RootLayout({
   const session = await getServerSession(authOptions);
   const isAdmin = !!session?.user?.isAdmin;
 
+  const navLinks = [
+    { href: "/", label: "Programs" },
+    { href: "/history", label: "History" },
+    { href: "/import", label: "Import" },
+    ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
+  ];
+
   return (
     <html lang="en">
       <body
@@ -33,44 +40,10 @@ export default async function RootLayout({
         <Providers>
         <header className="border-b border-border bg-card sticky top-0 z-10">
           <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-            <Link href="/" className="text-xl font-semibold text-primary">
+            <Link href="/" className="text-xl font-semibold text-primary shrink-0">
               LiftLog
             </Link>
-            <nav className="flex items-center gap-4">
-              <Link
-                href="/"
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Programs
-              </Link>
-              <Link
-                href="/history"
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                History
-              </Link>
-              <Link
-                href="/import"
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Import
-              </Link>
-              <Link
-                href="/profile"
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Profile
-              </Link>
-              {isAdmin && (
-                <Link
-                  href="/admin"
-                  className="text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Admin
-                </Link>
-              )}
-              <HeaderAuth />
-            </nav>
+            <NavHeader links={navLinks} />
           </div>
         </header>
         <main className="container mx-auto px-4 py-6 pb-24">{children}</main>

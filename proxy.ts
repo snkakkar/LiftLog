@@ -21,6 +21,7 @@ export const config = {
     "/api/log",
     "/api/logged-sets/:path*",
     "/api/profile/:path*",
+    "/api/account",
     "/api/previous-log",
     "/api/import",
     "/api/weeks/:path*",

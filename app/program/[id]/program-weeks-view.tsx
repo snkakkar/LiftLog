@@ -168,81 +168,81 @@ export function ProgramWeeksView({
           className={`transition-shadow ${dropTargetId === w.id ? "ring-2 ring-primary" : ""}`}
         >
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <div
-                  className="flex items-center gap-1 min-w-0 cursor-grab active:cursor-grabbing"
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, w.id)}
-                  onDragEnd={handleDragEnd}
-                >
-                  <span className={`text-muted-foreground shrink-0 ${draggedId === w.id ? "opacity-50" : ""}`} aria-hidden>
-                    <GripVertical className="h-4 w-4" />
-                  </span>
-                  <CardTitle className="text-lg">Week {w.weekNumber}</CardTitle>
+            {/* Line 1: Week + date */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                className="flex items-center gap-1 min-w-0 cursor-grab active:cursor-grabbing"
+                draggable
+                onDragStart={(e) => handleDragStart(e, w.id)}
+                onDragEnd={handleDragEnd}
+              >
+                <span className={`text-muted-foreground shrink-0 ${draggedId === w.id ? "opacity-50" : ""}`} aria-hidden>
+                  <GripVertical className="h-4 w-4" />
+                </span>
+                <CardTitle className="text-lg">Week {w.weekNumber}</CardTitle>
+              </div>
+              {editingWeekId === w.id ? (
+                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="date"
+                    value={editDateValue}
+                    onChange={(e) => setEditDateValue(e.target.value)}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                  <Button size="sm" variant="secondary" className="h-8" onClick={cancelEditDate}>
+                    Cancel
+                  </Button>
+                  <Button size="sm" className="h-8" disabled={dateSaving} onClick={() => saveWeekDate(w.id)}>
+                    {dateSaving ? "…" : "Save"}
+                  </Button>
                 </div>
-                {editingWeekId === w.id ? (
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="date"
-                      value={editDateValue}
-                      onChange={(e) => setEditDateValue(e.target.value)}
-                      className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-                    />
-                    <Button size="sm" variant="secondary" className="h-8" onClick={cancelEditDate}>
-                      Cancel
-                    </Button>
-                    <Button size="sm" className="h-8" disabled={dateSaving} onClick={() => saveWeekDate(w.id)}>
-                      {dateSaving ? "…" : "Save"}
-                    </Button>
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground text-sm shrink-0 flex items-center gap-1">
-                    {w.startDate ? (
-                      <>
-                        {formatWeekDate(w.startDate)}
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEditDate(w)} aria-label="Edit week date">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      </>
-                    ) : (
-                      <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => startEditDate(w)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1" />
-                        Set date
+              ) : (
+                <span className="text-muted-foreground text-sm shrink-0 flex items-center gap-1">
+                  {w.startDate ? (
+                    <>
+                      {formatWeekDate(w.startDate)}
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEditDate(w)} aria-label="Edit week date">
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                    )}
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-1 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => handleDuplicateWeek(w.id)}
-                >
-                  <Copy className="h-3.5 w-3.5 mr-1" />
-                  Duplicate week
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => handleAddDay(w.id)}
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" />
-                  Add day
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-xs text-muted-foreground hover:text-destructive"
-                  onClick={() => handleDeleteWeek(w.id)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Delete week
-                </Button>
-              </div>
+                    </>
+                  ) : (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => startEditDate(w)}>
+                      <Pencil className="h-3.5 w-3.5 mr-1" />
+                      Set date
+                    </Button>
+                  )}
+                </span>
+              )}
+            </div>
+            {/* Line 2: Actions */}
+            <div className="flex flex-wrap gap-1 mt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => handleDuplicateWeek(w.id)}
+              >
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                Duplicate week
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => handleAddDay(w.id)}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add day
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-muted-foreground hover:text-destructive"
+                onClick={() => handleDeleteWeek(w.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Delete week
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="pt-0">
