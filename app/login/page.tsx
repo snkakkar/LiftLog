@@ -26,13 +26,18 @@ function LoginForm() {
       const res = await signIn("credentials", {
         email: email.trim().toLowerCase(),
         password,
+        callbackUrl,
         redirect: false,
       });
       if (res?.error) {
         setError("Invalid email or password");
         return;
       }
-      router.push(callbackUrl);
+      if (res?.url) {
+        window.location.href = res.url;
+        return;
+      }
+      router.replace(callbackUrl);
       router.refresh();
     } catch {
       setError("Something went wrong");
