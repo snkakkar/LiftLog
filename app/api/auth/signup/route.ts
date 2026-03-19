@@ -27,7 +27,12 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ id: user.id, email: user.email, name: user.name });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     console.error("Signup error:", e);
-    return NextResponse.json({ error: "Sign up failed" }, { status: 500 });
+    // Surface error for debugging (remove in production if sensitive)
+    return NextResponse.json(
+      { error: msg.includes("DATABASE") || msg.includes("postgresql://") ? "Database connection failed. Check Vercel env vars." : msg },
+      { status: 500 }
+    );
   }
 }
