@@ -809,6 +809,15 @@ export function WorkoutLogClient({
                             B
                           </Link>
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => { e.stopPropagation(); void handleRemoveSuperset(exA.id); }}
+                        >
+                          <Link2 className="h-4 w-4 mr-1" />
+                          Split
+                        </Button>
                       </div>
                       {isEx ? (
                         <ChevronUp className="h-4 w-4 text-muted-foreground" />
