@@ -512,7 +512,7 @@ export function HistoryDetailClient({
               <div key={idx} className="border border-border rounded-lg overflow-hidden">
                 <button
                   type="button"
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-left hover:bg-muted/50 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-3 sm:py-2 text-sm font-medium text-left hover:bg-muted/50 transition-colors"
                   onClick={() => toggleChunk(idx)}
                 >
                   {isExpanded ? (
@@ -549,7 +549,7 @@ export function HistoryDetailClient({
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0 hidden md:inline-flex ml-auto"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0 ml-auto"
                               onClick={() => handleDeleteSet(s.id)}
                               disabled={deletingId === s.id}
                               aria-label="Delete this set"
@@ -570,12 +570,12 @@ export function HistoryDetailClient({
       <div className="space-y-2 order-1 lg:order-2">
         <Card>
           <CardContent className="pt-3 pb-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
               <p className="text-xs font-medium text-muted-foreground">Volume (weight × reps) by session</p>
               <select
                 value={timeframeDays}
                 onChange={(e) => setTimeframeDays(Number(e.target.value))}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs shrink-0"
               >
                 {TIMEFRAME_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>

@@ -41,6 +41,33 @@ export async function POST(
 }
 
 /**
+ * PUT - Update targetReps on all template sets for this exercise.
+ * Body: { targetReps: number | null }
+ */
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const userId = await requireUserId();
+  const { id: exerciseId } = await params;
+  const exercise = await prisma.exercise.findFirst({
+    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    include: { templateSets: true },
+  });
+  if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+  const body = await request.json().catch(() => ({}));
+  const targetReps = body.targetReps != null ? Math.max(1, Math.floor(Number(body.targetReps))) : null;
+  const targetRepsMin = body.targetRepsMin != null ? Math.max(1, Math.floor(Number(body.targetRepsMin))) : null;
+
+  await prisma.exerciseSet.updateMany({
+    where: { exerciseId },
+    data: { targetReps, targetRepsMin },
+  });
+  return NextResponse.json({ ok: true });
+}
+
+/**
  * PATCH - Reorder template sets. Body: { orderedSetIds: string[] }
  * Sets get setNumber 1, 2, 3... by array order. Does not change any logged set dates.
  */

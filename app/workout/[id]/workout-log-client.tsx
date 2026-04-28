@@ -27,6 +27,7 @@ type TemplateSet = {
   id: string;
   setNumber: number;
   targetReps: number | null;
+  targetRepsMin: number | null;
   targetWeight: number | null;
   targetRir?: number | null;
 };
@@ -95,6 +96,7 @@ function templateForSetNumber(ex: Exercise, setNumber: number): TemplateSet {
     id: "",
     setNumber,
     targetReps: null,
+    targetRepsMin: null,
     targetWeight: null,
     targetRir: null,
   };
@@ -137,10 +139,12 @@ function safeExerciseName(name: unknown): string {
   return s.replace(/^\[object \w+\]$/, "") || "Exercise";
 }
 
-function repRangeLabel(targetReps: number | null): string {
+function repRangeLabel(targetReps: number | null, targetRepsMin?: number | null): string {
   if (targetReps == null || targetReps < 1) return "";
-  const low = Math.max(1, targetReps - 2);
-  return low === targetReps ? `${targetReps} reps` : `${low}–${targetReps} reps`;
+  if (targetRepsMin != null && targetRepsMin >= 1 && targetRepsMin < targetReps) {
+    return `${targetRepsMin}–${targetReps} reps`;
+  }
+  return `${targetReps} reps`;
 }
 
 /** Epley 1RM estimate: weight * (1 + reps/30). Returns null if invalid. */
@@ -188,6 +192,10 @@ export function WorkoutLogClient({
   const [movingExId, setMovingExId] = useState<string | null>(null);
   const [propagatePending, setPropagatePending] = useState<{ exerciseId: string; label: string } | null>(null);
   const [propagating, setPropagating] = useState(false);
+  const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
+  const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
+  const [editingRepRangeMax, setEditingRepRangeMax] = useState("");
+  const [isDeload, setIsDeload] = useState(false);
   const isLgScreen = useMinWidthLg();
 
   const ensureSession = useCallback(async () => {
@@ -198,6 +206,7 @@ export function WorkoutLogClient({
       const existing = await existingRes.json();
       if (existing?.id) {
         setSessionId(existing.id);
+        if (existing.isDeload) setIsDeload(true);
         const [setsRes, overridesRes] = await Promise.all([
           fetch(`/api/sessions/${existing.id}/sets`),
           fetch(`/api/sessions/${existing.id}/overrides`),
@@ -545,6 +554,22 @@ export function WorkoutLogClient({
     }
   }
 
+  const handleSaveRepRange = async (exerciseId: string, min: string, max: string) => {
+    const parsedMax = parseInt(max.trim(), 10);
+    const parsedMin = parseInt(min.trim(), 10);
+    const targetReps = isNaN(parsedMax) || parsedMax < 1 ? null : parsedMax;
+    const targetRepsMin = !isNaN(parsedMin) && parsedMin >= 1 && targetReps != null && parsedMin < targetReps ? parsedMin : null;
+    setEditingRepRangeExId(null);
+    setEditingRepRangeMin("");
+    setEditingRepRangeMax("");
+    await fetch(`/api/exercises/${exerciseId}/sets`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetReps, targetRepsMin }),
+    });
+    router.refresh();
+  };
+
   const handleMoveExercise = async (exerciseId: string, targetDayId: string) => {
     if (targetDayId === workoutDayId) return;
     setMovingExId(exerciseId);
@@ -572,6 +597,17 @@ export function WorkoutLogClient({
       setPropagating(false);
       setPropagatePending(null);
     }
+  };
+
+  const handleToggleDeload = async (value: boolean) => {
+    setIsDeload(value);
+    const sid = sessionId ?? (await ensureSession());
+    if (!sid) return;
+    await fetch(`/api/sessions/${sid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isDeload: value }),
+    });
   };
 
   const handleCreateSuperset = async (exerciseId: string, partnerId: string) => {
@@ -683,7 +719,7 @@ export function WorkoutLogClient({
       {propagatePending && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
           <p className="text-sm flex-1">
-            Apply this change to <span className="font-medium">{propagatePending.label}</span> in all subsequent weeks too?
+            Apply this change to <span className="font-medium break-words">{propagatePending.label}</span> in all subsequent weeks too?
           </p>
           <div className="flex gap-2 shrink-0">
             <Button
@@ -751,17 +787,35 @@ export function WorkoutLogClient({
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <CardTitle className="text-base">{dispA}</CardTitle>
-                            {(() => {
-                              const rr = repRangeLabel(exA.templateSets?.[0]?.targetReps ?? null);
-                              return rr ? <p className="text-xs text-muted-foreground mt-0.5">Rep range: {rr}</p> : null;
-                            })()}
+                            <RepRangeDisplay
+                              exerciseId={exA.id}
+                              targetReps={exA.templateSets?.[0]?.targetReps ?? null}
+                              targetRepsMin={exA.templateSets?.[0]?.targetRepsMin ?? null}
+                              editingExId={editingRepRangeExId}
+                              editingMin={editingRepRangeMin}
+                              editingMax={editingRepRangeMax}
+                              onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
+                              onSave={handleSaveRepRange}
+                              onCancel={() => setEditingRepRangeExId(null)}
+                              onChangeMin={setEditingRepRangeMin}
+                              onChangeMax={setEditingRepRangeMax}
+                            />
                           </div>
                           <div>
                             <CardTitle className="text-base">{dispB}</CardTitle>
-                            {(() => {
-                              const rr = repRangeLabel(exB.templateSets?.[0]?.targetReps ?? null);
-                              return rr ? <p className="text-xs text-muted-foreground mt-0.5">Rep range: {rr}</p> : null;
-                            })()}
+                            <RepRangeDisplay
+                              exerciseId={exB.id}
+                              targetReps={exB.templateSets?.[0]?.targetReps ?? null}
+                              targetRepsMin={exB.templateSets?.[0]?.targetRepsMin ?? null}
+                              editingExId={editingRepRangeExId}
+                              editingMin={editingRepRangeMin}
+                              editingMax={editingRepRangeMax}
+                              onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
+                              onSave={handleSaveRepRange}
+                              onCancel={() => setEditingRepRangeExId(null)}
+                              onChangeMin={setEditingRepRangeMin}
+                              onChangeMax={setEditingRepRangeMax}
+                            />
                           </div>
                         </div>
                         {isEx && recommendationByEx[exA.id] && (
@@ -878,7 +932,7 @@ export function WorkoutLogClient({
                               {customReplaceExId === exItem.id && (
                                 <>
                                   <Input
-                                    className="h-8 w-40 text-sm"
+                                    className="h-8 w-full sm:w-40 text-sm"
                                     placeholder="Exercise name"
                                     value={customReplaceValue}
                                     onChange={(e) => setCustomReplaceValue(e.target.value)}
@@ -1017,7 +1071,7 @@ export function WorkoutLogClient({
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className={`h-8 shrink-0 text-muted-foreground hover:text-destructive hidden md:inline-flex ${isLgScreen ? "self-center" : "self-end mr-3 mb-2"}`}
+                                className={`h-8 shrink-0 text-muted-foreground hover:text-destructive ${isLgScreen ? "self-center" : "self-end mr-3 mb-2"}`}
                                 onClick={onRowDel}
                                 aria-label="Delete superset row"
                               >
@@ -1169,12 +1223,19 @@ export function WorkoutLogClient({
                     )}
                     <div className="min-w-0 flex-1">
                   <CardTitle className="text-base">{displayName}</CardTitle>
-                  {(() => {
-                    const repRange = repRangeLabel(ex.templateSets?.[0]?.targetReps ?? null);
-                    return repRange ? (
-                      <p className="text-xs text-muted-foreground mt-0.5">Rep range: {repRange}</p>
-                    ) : null;
-                  })()}
+                  <RepRangeDisplay
+                    exerciseId={ex.id}
+                    targetReps={ex.templateSets?.[0]?.targetReps ?? null}
+                    targetRepsMin={ex.templateSets?.[0]?.targetRepsMin ?? null}
+                    editingExId={editingRepRangeExId}
+                    editingMin={editingRepRangeMin}
+                    editingMax={editingRepRangeMax}
+                    onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
+                    onSave={handleSaveRepRange}
+                    onCancel={() => setEditingRepRangeExId(null)}
+                    onChangeMin={setEditingRepRangeMin}
+                    onChangeMax={setEditingRepRangeMax}
+                  />
                   {isExpanded && recommendationByEx[ex.id] && (
                     <p className="text-xs text-primary mt-1 font-medium">
                       {recommendationByEx[ex.id]}
@@ -1220,7 +1281,7 @@ export function WorkoutLogClient({
                       {showCustomInput && (
                         <>
                           <Input
-                            className="h-8 w-40 text-sm"
+                            className="h-8 w-full sm:w-40 text-sm"
                             placeholder="Exercise name"
                             value={customReplaceValue}
                             onChange={(e) => setCustomReplaceValue(e.target.value)}
@@ -1371,7 +1432,7 @@ export function WorkoutLogClient({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0 hidden md:inline-flex text-muted-foreground hover:text-destructive shrink-0"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
                             onClick={onDelete}
                             aria-label="Delete this set"
                           >
@@ -1467,18 +1528,148 @@ export function WorkoutLogClient({
         </CardContent>
       </Card>
       <div className="sticky bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border py-3 px-4 mt-6 rounded-t-lg shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          {lastSavedAt ? (
-            <>
-              <Check className="h-4 w-4 text-green-600 shrink-0" aria-hidden />
-              <span>Changes saved — your logs are stored when you tap Log on each set.</span>
-            </>
-          ) : (
-            <span>Tap &quot;Log&quot; on each set to save reps, weight, and RIR. Changes save immediately.</span>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+            {lastSavedAt ? (
+              <>
+                <Check className="h-4 w-4 text-green-600 shrink-0" aria-hidden />
+                <span>Changes saved.</span>
+              </>
+            ) : (
+              <span>Tap &quot;Log&quot; on each set to save.</span>
+            )}
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none">
+            <div
+              role="switch"
+              aria-checked={isDeload}
+              onClick={() => void handleToggleDeload(!isDeload)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isDeload ? "bg-amber-400" : "bg-input"}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isDeload ? "translate-x-6" : "translate-x-1"}`}
+              />
+            </div>
+            <span className={`text-sm font-medium ${isDeload ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+              Deload
+            </span>
+          </label>
         </div>
+        {isDeload && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+            Deload mode — sets are logged but excluded from history and progression charts.
+          </p>
+        )}
       </div>
     </div>
+  );
+}
+
+function RepRangeDisplay({
+  exerciseId,
+  targetReps,
+  targetRepsMin,
+  editingExId,
+  editingMin,
+  editingMax,
+  onStartEdit,
+  onSave,
+  onCancel,
+  onChangeMin,
+  onChangeMax,
+}: {
+  exerciseId: string;
+  targetReps: number | null;
+  targetRepsMin: number | null;
+  editingExId: string | null;
+  editingMin: string;
+  editingMax: string;
+  onStartEdit: (id: string, min: string, max: string) => void;
+  onSave: (id: string, min: string, max: string) => Promise<void>;
+  onCancel: () => void;
+  onChangeMin: (v: string) => void;
+  onChangeMax: (v: string) => void;
+}) {
+  const isEditing = editingExId === exerciseId;
+  if (isEditing) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+        <span className="text-xs text-muted-foreground shrink-0">Rep range:</span>
+        <Input
+          type="number"
+          min={1}
+          inputMode="numeric"
+          className="h-8 w-14 text-sm px-2"
+          placeholder="min"
+          value={editingMin}
+          onChange={(e) => onChangeMin(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void onSave(exerciseId, editingMin, editingMax);
+            if (e.key === "Escape") onCancel();
+          }}
+          autoFocus
+        />
+        <span className="text-xs text-muted-foreground">–</span>
+        <Input
+          type="number"
+          min={1}
+          inputMode="numeric"
+          className="h-8 w-14 text-sm px-2"
+          placeholder="max"
+          value={editingMax}
+          onChange={(e) => onChangeMax(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void onSave(exerciseId, editingMin, editingMax);
+            if (e.key === "Escape") onCancel();
+          }}
+          onBlur={(e) => {
+            if (!e.relatedTarget) void onSave(exerciseId, editingMin, editingMax);
+          }}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-8 px-3 text-xs"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => void onSave(exerciseId, editingMin, editingMax)}
+        >
+          Save
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 px-2 text-xs"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+  const label = repRangeLabel(targetReps, targetRepsMin);
+  return (
+    <button
+      type="button"
+      className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground group"
+      onClick={(e) => {
+        e.stopPropagation();
+        onStartEdit(
+          exerciseId,
+          targetRepsMin != null ? String(targetRepsMin) : "",
+          targetReps != null ? String(targetReps) : ""
+        );
+      }}
+    >
+      {label ? (
+        <>
+          <span>Rep range: {label}</span>
+          <span className="opacity-0 group-hover:opacity-60 text-[10px]">(edit)</span>
+        </>
+      ) : (
+        <span className="opacity-50 group-hover:opacity-100">+ set rep target</span>
+      )}
+    </button>
   );
 }
 
@@ -1535,7 +1726,7 @@ function SetRow({
     v != null ? Math.max(min, v - step) : min;
 
   return (
-    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3">
+    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3 min-w-0">
       {hideSetNumber ? (
         <span className="sr-only">Set {setNumber}</span>
       ) : (
@@ -1606,7 +1797,7 @@ function SetRow({
           </Button>
         </div>
       </div>
-      <div className="w-16">
+      <div className="w-16 shrink-0">
         <Label className="text-xs">RIR</Label>
         <Input
           type="number"

@@ -73,13 +73,14 @@ model Exercise {
 }
 
 model ExerciseSet {
-  id           String   @id @default(cuid())
-  exerciseId   String
-  setNumber   Int
-  targetReps  Int?
-  targetWeight Float?
-  targetRir   Int?
-  exercise     Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  id             String   @id @default(cuid())
+  exerciseId     String
+  setNumber      Int
+  targetReps     Int?     // upper bound (or exact) of rep range
+  targetRepsMin  Int?     // lower bound of rep range; null means exact reps
+  targetWeight   Float?
+  targetRir      Int?
+  exercise       Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
 }
 
 model WorkoutSession {
@@ -87,6 +88,7 @@ model WorkoutSession {
   workoutDayId String
   startedAt    DateTime @default(now())
   completedAt  DateTime?
+  isDeload     Boolean  @default(false)
   workoutDay   WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
 
   loggedSets      LoggedSet[]

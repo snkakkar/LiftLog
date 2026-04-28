@@ -31,7 +31,7 @@ export default async function ExerciseNameHistoryPage({
     where: {
       exerciseId: { in: exerciseIds },
       isWarmup: { not: true },
-      workoutSession: { workoutDay: { week: { program: { userId } } } },
+      workoutSession: { isDeload: { not: true }, workoutDay: { week: { program: { userId } } } },
     },
     orderBy: { completedAt: "desc" },
     take: 2000,
