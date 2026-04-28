@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { WorkoutLogClient } from "./workout-log-client";
 import { DayNameEdit } from "./day-name-edit";
+import { DeloadToggle } from "./deload-toggle";
 import { RestTimer } from "@/components/rest-timer";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
@@ -64,7 +65,10 @@ export default async function WorkoutPage({
           <DayNameEdit workoutDayId={day.id} currentName={day.name} />
         </div>
       </div>
-      <RestTimer />
+      <div className="flex items-center justify-between gap-4">
+        <RestTimer />
+        <DeloadToggle workoutDayId={day.id} />
+      </div>
       <WorkoutLogClient
         workoutDayId={day.id}
         exercises={serializedExercises}

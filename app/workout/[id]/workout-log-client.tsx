@@ -195,7 +195,6 @@ export function WorkoutLogClient({
   const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
   const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
   const [editingRepRangeMax, setEditingRepRangeMax] = useState("");
-  const [isDeload, setIsDeload] = useState(false);
   const isLgScreen = useMinWidthLg();
 
   const ensureSession = useCallback(async () => {
@@ -206,7 +205,6 @@ export function WorkoutLogClient({
       const existing = await existingRes.json();
       if (existing?.id) {
         setSessionId(existing.id);
-        if (existing.isDeload) setIsDeload(true);
         const [setsRes, overridesRes] = await Promise.all([
           fetch(`/api/sessions/${existing.id}/sets`),
           fetch(`/api/sessions/${existing.id}/overrides`),
@@ -597,17 +595,6 @@ export function WorkoutLogClient({
       setPropagating(false);
       setPropagatePending(null);
     }
-  };
-
-  const handleToggleDeload = async (value: boolean) => {
-    setIsDeload(value);
-    const sid = sessionId ?? (await ensureSession());
-    if (!sid) return;
-    await fetch(`/api/sessions/${sid}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isDeload: value }),
-    });
   };
 
   const handleCreateSuperset = async (exerciseId: string, partnerId: string) => {
@@ -1528,38 +1515,16 @@ export function WorkoutLogClient({
         </CardContent>
       </Card>
       <div className="sticky bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border py-3 px-4 mt-6 rounded-t-lg shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-            {lastSavedAt ? (
-              <>
-                <Check className="h-4 w-4 text-green-600 shrink-0" aria-hidden />
-                <span>Changes saved.</span>
-              </>
-            ) : (
-              <span>Tap &quot;Log&quot; on each set to save.</span>
-            )}
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none">
-            <div
-              role="switch"
-              aria-checked={isDeload}
-              onClick={() => void handleToggleDeload(!isDeload)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isDeload ? "bg-amber-400" : "bg-input"}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isDeload ? "translate-x-6" : "translate-x-1"}`}
-              />
-            </div>
-            <span className={`text-sm font-medium ${isDeload ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-              Deload
-            </span>
-          </label>
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          {lastSavedAt ? (
+            <>
+              <Check className="h-4 w-4 text-green-600 shrink-0" aria-hidden />
+              <span>Changes saved — your logs are stored when you tap Log on each set.</span>
+            </>
+          ) : (
+            <span>Tap &quot;Log&quot; on each set to save reps, weight, and RIR. Changes save immediately.</span>
+          )}
         </div>
-        {isDeload && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
-            Deload mode — sets are logged but excluded from history and progression charts.
-          </p>
-        )}
       </div>
     </div>
   );
