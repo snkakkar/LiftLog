@@ -331,6 +331,26 @@ export function HistoryDetailClient({
     } else if (weightsWithData.length === 1) {
       lines.push(`Top weight: ${weightsWithData[0]} lb.`);
     }
+
+    // Est. 1RM summary across the full timeframe
+    const all1RMWithData = chartData.map((d) => d.est1RM).filter((v): v is number => v != null && v > 0);
+    if (all1RMWithData.length >= 2) {
+      const first1RM = all1RMWithData[0];
+      const last1RM = all1RMWithData[all1RMWithData.length - 1];
+      const delta1RM = Math.round((last1RM - first1RM) * 10) / 10;
+      const pct1RM = first1RM > 0 ? Math.round((delta1RM / first1RM) * 100) : 0;
+      const peak1RM = Math.max(...all1RMWithData);
+      if (delta1RM > 0) {
+        lines.push(`Est. 1RM: ${first1RM} → ${last1RM} lb (+${delta1RM} lb${pct1RM !== 0 ? `, +${pct1RM}%` : ""}). Peak: ${peak1RM} lb.`);
+      } else if (delta1RM < 0) {
+        lines.push(`Est. 1RM: ${first1RM} → ${last1RM} lb (${delta1RM} lb). Peak: ${peak1RM} lb.`);
+      } else {
+        lines.push(`Est. 1RM stable at ${last1RM} lb. Peak: ${peak1RM} lb.`);
+      }
+    } else if (all1RMWithData.length === 1) {
+      lines.push(`Est. 1RM: ${all1RMWithData[0]} lb.`);
+    }
+
     const summaryText = lines.join(" ");
 
     const recentDates = byDate.dates.slice(0, Math.min(5, byDate.dates.length));
@@ -368,9 +388,22 @@ export function HistoryDetailClient({
     const weightDelta = recentTop - olderTop;
     const weightPctChange = olderTop > 0 ? (weightDelta / olderTop) * 100 : 0;
 
+    // Est. 1RM trend over the recent window
+    const recent1RMs = recent.map((d) => d.est1RM).filter((v): v is number => v != null && v > 0);
+    const older1RMs = chartData.slice(0, -recent.length).map((d) => d.est1RM).filter((v): v is number => v != null && v > 0);
+    const recentBest1RM = recent1RMs.length > 0 ? Math.max(...recent1RMs) : 0;
+    const olderBest1RM = older1RMs.length > 0 ? Math.max(...older1RMs) : 0;
+    const delta1RM = Math.round((recentBest1RM - olderBest1RM) * 10) / 10;
+    const pct1RM = olderBest1RM > 0 ? Math.round((delta1RM / olderBest1RM) * 100) : 0;
+    const strength1RMUp = delta1RM > 0;
+    const strength1RMFlat = delta1RM === 0 && recentBest1RM > 0;
+    const has1RMData = recentBest1RM > 0;
+
+    const fmt1RM = (v: number) => `${Math.round(v * 10) / 10} lb`;
+
     const movement = getMovementContext(exerciseName);
     const nRecent = recent.length;
-    const isPlateau = nRecent >= 2 && !weightOrRepsUp && Math.abs(volumePctChange) < 5;
+    const isPlateau = nRecent >= 2 && !weightOrRepsUp && Math.abs(volumePctChange) < 5 && !strength1RMUp;
 
     let insightText = "";
     if (sessionCount < 2) {
@@ -378,41 +411,57 @@ export function HistoryDetailClient({
     } else if (isPlateau) {
       const currentTop = recentTop > 0 ? recentTop : olderTop;
       const advice = getPlateauAdvice(exerciseName, movement, currentTop);
-      insightText = `${exerciseName} has stayed at ${currentTop} lb for the last ${nRecent} session${nRecent === 1 ? "" : "s"} with similar volume and reps — progress has stalled on this movement. ${advice}`;
+      const rmNote = has1RMData ? ` Est. 1RM is holding at ${fmt1RM(recentBest1RM)}.` : "";
+      insightText = `${exerciseName} has stayed at ${currentTop} lb for the last ${nRecent} session${nRecent === 1 ? "" : "s"} with similar volume and reps — progress has stalled on this movement.${rmNote} ${advice}`;
     } else if (trend === "up") {
-      const volDesc = volumePctChange >= 15
-        ? `volume is up ${Math.round(volumePctChange)}%`
-        : volumePctChange >= 5
-          ? `volume is up ${Math.round(volumePctChange)}%`
-          : "volume is inching up";
-      if (weightDelta > 0) {
+      const volDesc = volumePctChange >= 5 ? `volume is up ${Math.round(volumePctChange)}%` : "volume is inching up";
+      if (weightDelta > 0 && has1RMData) {
         const pctPart = olderTop > 0 && Number.isFinite(weightPctChange) && Math.abs(weightPctChange) >= 1
           ? `, ${weightPctChange > 0 ? "+" : ""}${Math.round(weightPctChange)}%`
           : "";
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, ${exerciseName} went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb${pctPart}) and ${volDesc}. You're progressing both load and volume — keep adding weight or reps gradually to sustain it.`;
+        const rmPart = strength1RMUp
+          ? ` Est. 1RM is up from ${fmt1RM(olderBest1RM)} to ${fmt1RM(recentBest1RM)} (+${delta1RM} lb${pct1RM !== 0 ? `, +${pct1RM}%` : ""}) — a solid indicator of real strength gain.`
+          : strength1RMFlat
+            ? ` Est. 1RM is holding steady at ${fmt1RM(recentBest1RM)}, so the extra volume is building work capacity without yet pushing your strength ceiling.`
+            : "";
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, ${exerciseName} went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb${pctPart}) and ${volDesc}.${rmPart} Keep adding weight or reps gradually to sustain it.`;
+      } else if (has1RMData && strength1RMUp) {
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, ${volDesc} and est. 1RM is up from ${fmt1RM(olderBest1RM)} to ${fmt1RM(recentBest1RM)} (+${delta1RM} lb). Both volume and strength are moving in the right direction. Add a small weight increase next session to keep it going.`;
       } else {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, ${volDesc}. Focus on adding a small amount of weight or 1–2 more reps on your top set next block to keep overloading.`;
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, ${volDesc}${has1RMData ? ` (est. 1RM: ${fmt1RM(recentBest1RM)})` : ""}. Focus on adding a small amount of weight or 1–2 more reps on your top set next block to keep overloading.`;
       }
     } else if (trend === "down") {
-      if (weightUp && olderTop > 0) {
+      if (strength1RMUp && has1RMData) {
+        // 1RM is up even though volume is down — intensity is working
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is down but est. 1RM improved from ${fmt1RM(olderBest1RM)} to ${fmt1RM(recentBest1RM)} (+${delta1RM} lb, +${pct1RM}%). You're trading volume for intensity and getting stronger — that's a valid trade-off. Once your 1RM plateaus at this level, consider adding a back-off set to rebuild volume.`;
+      } else if (weightUp && olderTop > 0) {
         const volDesc = volumePctChange < -5 ? `Volume dropped ${Math.round(Math.abs(volumePctChange))}% while ` : "";
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, ${volDesc}top weight on ${exerciseName} went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb). You're lifting heavier per set — that's progressive overload; the dip in volume reflects the heavier load. Keep building strength at this weight before adding more.`;
+        const rmNote = has1RMData ? ` Est. 1RM: ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, ${volDesc}top weight on ${exerciseName} went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb).${rmNote} You're lifting heavier per set — the dip in volume reflects the heavier load. Keep building strength at this weight before adding more.`;
       } else if (repsUp && !weightUp) {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, volume on ${exerciseName} dipped but you're getting more reps at similar weight. You're progressing in work capacity; next step is to add weight (2.5–5 lb) so those extra reps translate into load progression.`;
+        const rmNote = has1RMData ? ` Est. 1RM is at ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, volume on ${exerciseName} dipped but you're getting more reps at similar weight.${rmNote} You're progressing in work capacity; next step is to add weight (2.5–5 lb) so those extra reps translate into load and 1RM progression.`;
       } else if (weightOrRepsUp) {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is down but you're lifting heavier or doing more reps. You're trading total volume for intensity — keep pushing the weight or rep target on your top sets.`;
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is down but you're lifting heavier or doing more reps${has1RMData ? ` (est. 1RM: ${fmt1RM(recentBest1RM)})` : ""}. You're trading total volume for intensity — keep pushing the weight or rep target on your top sets.`;
       } else {
-        insightText = `Volume on ${exerciseName} is down over the last ${nRecent} session${nRecent === 1 ? "" : "s"} with no increase in weight or reps. If this isn't a planned deload, consider a lighter week or checking recovery before pushing load again.`;
+        const rmNote = has1RMData ? ` Est. 1RM is at ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `Volume on ${exerciseName} is down over the last ${nRecent} session${nRecent === 1 ? "" : "s"} with no increase in weight or reps.${rmNote} If this isn't a planned deload, consider a lighter week or checking recovery before pushing load again.`;
       }
     } else {
-      if (weightUp && olderTop > 0) {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, volume on ${exerciseName} is flat but top weight went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb). Same or less volume at higher load means you're getting stronger — that's effective progressive overload.`;
+      if (strength1RMUp && has1RMData) {
+        // Volume flat but 1RM up — pure strength gain
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is flat but est. 1RM improved from ${fmt1RM(olderBest1RM)} to ${fmt1RM(recentBest1RM)} (+${delta1RM} lb, +${pct1RM}%). Getting stronger at the same volume is exactly what progressive overload looks like — keep pushing the load each session.`;
+      } else if (weightUp && olderTop > 0) {
+        const rmNote = has1RMData ? ` Est. 1RM: ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"}, volume on ${exerciseName} is flat but top weight went from ${olderTop} to ${recentTop} lb (+${weightDelta} lb).${rmNote} Same or less volume at higher load means you're getting stronger — that's effective progressive overload.`;
       } else if (repsUp) {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is flat and you're hitting more reps. You're progressing; add 2.5–5 lb next so the overload continues.`;
+        const rmNote = has1RMData ? ` Est. 1RM: ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is flat and you're hitting more reps.${rmNote} You're progressing; add 2.5–5 lb next so the overload continues.`;
       } else if (weightOrRepsUp) {
-        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is steady and weight or reps are up. You're applying progressive overload — keep adding small increments in load or reps.`;
+        insightText = `Over the last ${nRecent} session${nRecent === 1 ? "" : "s"} on ${exerciseName}, volume is steady and weight or reps are up${has1RMData ? ` (est. 1RM: ${fmt1RM(recentBest1RM)})` : ""}. You're applying progressive overload — keep adding small increments in load or reps.`;
       } else {
-        insightText = `${exerciseName} has held steady in volume and load over the last ${nRecent} session${nRecent === 1 ? "" : "s"}. ${getPlateauAdvice(exerciseName, movement, recentTop > 0 ? recentTop : olderTop)}`;
+        const rmNote = has1RMData ? ` Est. 1RM is holding at ${fmt1RM(recentBest1RM)}.` : "";
+        insightText = `${exerciseName} has held steady in volume and load over the last ${nRecent} session${nRecent === 1 ? "" : "s"}.${rmNote} ${getPlateauAdvice(exerciseName, movement, recentTop > 0 ? recentTop : olderTop)}`;
       }
     }
     return { summaryText, insightText };
