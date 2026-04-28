@@ -7,7 +7,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ChevronDown, ChevronUp, Replace, Minus, Plus, GripVertical, Check, Trash2, ArrowRightCircle, History } from "lucide-react";
+import {
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Replace,
+  Minus,
+  Plus,
+  GripVertical,
+  Check,
+  Trash2,
+  ArrowRightCircle,
+  History,
+  Link2,
+} from "lucide-react";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 
 type TemplateSet = {
@@ -24,7 +37,83 @@ type Exercise = {
   templateSets: TemplateSet[];
   substitution1?: string | null;
   substitution2?: string | null;
+  supersetGroupId?: string | null;
 };
+
+type ExerciseBlock =
+  | { type: "single"; exercise: Exercise }
+  | { type: "superset"; first: Exercise; second: Exercise; groupId: string };
+
+function buildExerciseBlocks(exercises: Exercise[]): ExerciseBlock[] {
+  const sorted = [...exercises].sort((a, b) => a.orderIndex - b.orderIndex);
+  const used = new Set<string>();
+  const blocks: ExerciseBlock[] = [];
+  for (const ex of sorted) {
+    if (used.has(ex.id)) continue;
+    const gid = ex.supersetGroupId?.trim();
+    if (gid) {
+      const partner = sorted.find((p) => p.id !== ex.id && p.supersetGroupId === gid);
+      if (partner) {
+        used.add(ex.id);
+        used.add(partner.id);
+        const [first, second] =
+          ex.orderIndex <= partner.orderIndex ? [ex, partner] : [partner, ex];
+        blocks.push({ type: "superset", first, second, groupId: gid });
+        continue;
+      }
+    }
+    blocks.push({ type: "single", exercise: ex });
+  }
+  return blocks;
+}
+
+function getExerciseBlockKey(block: ExerciseBlock): string {
+  return block.type === "single" ? block.exercise.id : `superset:${block.groupId}`;
+}
+
+function maxDisplayedSetCount(
+  a: Exercise,
+  b: Exercise,
+  loggedA: LoggedSet[],
+  loggedB: LoggedSet[]
+): number {
+  const tmplMax = Math.max(
+    Array.isArray(a.templateSets) ? a.templateSets.length : 0,
+    Array.isArray(b.templateSets) ? b.templateSets.length : 0,
+    1
+  );
+  const logA = loggedA.length ? Math.max(...loggedA.map((s) => s.setNumber)) : 0;
+  const logB = loggedB.length ? Math.max(...loggedB.map((s) => s.setNumber)) : 0;
+  return Math.max(tmplMax, logA, logB, 1);
+}
+
+function templateForSetNumber(ex: Exercise, setNumber: number): TemplateSet {
+  const list = Array.isArray(ex.templateSets) ? ex.templateSets : [];
+  const found = list.find((s) => s.setNumber === setNumber);
+  if (found) return found;
+  return {
+    id: "",
+    setNumber,
+    targetReps: null,
+    targetWeight: null,
+    targetRir: null,
+  };
+}
+
+/** Used to switch superset set layout: labeled stacks on small screens vs side‑by‑side with set numbers on lg+. */
+function useMinWidthLg() {
+  const [match, setMatch] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    setMatch(mq.matches);
+    const onChange = () => setMatch(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return match;
+}
 type LoggedSet = {
   id: string;
   exerciseId?: string;
@@ -84,7 +173,11 @@ export function WorkoutLogClient({
   const [loggedByExercise, setLoggedByExercise] = useState<Record<string, LoggedSet[]>>({});
   const [previousByExercise, setPreviousByExercise] = useState<Record<string, PreviousLog>>({});
   const [overridesByExercise, setOverridesByExercise] = useState<Record<string, string>>({});
-  const [expandedExercise, setExpandedExercise] = useState<string | null>(exercises[0]?.id ?? null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(() => {
+    const blocks = buildExerciseBlocks(Array.isArray(exercisesProp) ? exercisesProp : []);
+    const b0 = blocks[0];
+    return b0 ? getExerciseBlockKey(b0) : null;
+  });
   const [customReplaceExId, setCustomReplaceExId] = useState<string | null>(null);
   const [customReplaceValue, setCustomReplaceValue] = useState("");
   const [recommendationByEx, setRecommendationByEx] = useState<Record<string, string | null>>({});
@@ -93,6 +186,9 @@ export function WorkoutLogClient({
   const [programDays, setProgramDays] = useState<{ id: string; weekNumber: number; dayNumber: number; name: string | null }[] | null>(null);
   const [deletingExId, setDeletingExId] = useState<string | null>(null);
   const [movingExId, setMovingExId] = useState<string | null>(null);
+  const [propagatePending, setPropagatePending] = useState<{ exerciseId: string; label: string } | null>(null);
+  const [propagating, setPropagating] = useState(false);
+  const isLgScreen = useMinWidthLg();
 
   const ensureSession = useCallback(async () => {
     const existingRes = await fetch(
@@ -189,19 +285,27 @@ export function WorkoutLogClient({
   }, [exercises, programId, currentWeekNumber]);
 
   useEffect(() => {
-    if (!expandedExercise) return;
-    const ex = exercises.find((e) => e.id === expandedExercise);
-    if (!ex || recommendationByEx[ex.id] !== undefined) return;
-    const recParams = new URLSearchParams();
-    if (programId) recParams.set("programId", programId);
-    if (currentWeekNumber != null) recParams.set("currentWeekNumber", String(currentWeekNumber));
-    fetch(`/api/exercises/${ex.id}/recommendation?${recParams}`)
-      .then((r) => r.json())
-      .then((data: { suggestion?: string | null }) =>
-        setRecommendationByEx((prev) => ({ ...prev, [ex.id]: data.suggestion ?? null }))
-      )
-      .catch(() => setRecommendationByEx((prev) => ({ ...prev, [ex.id]: null })));
-  }, [expandedExercise, exercises, recommendationByEx, programId, currentWeekNumber]);
+    if (!expandedKey) return;
+    const fetchRec = (ex: Exercise) => {
+      if (recommendationByEx[ex.id] !== undefined) return;
+      const recParams = new URLSearchParams();
+      if (programId) recParams.set("programId", programId);
+      if (currentWeekNumber != null) recParams.set("currentWeekNumber", String(currentWeekNumber));
+      fetch(`/api/exercises/${ex.id}/recommendation?${recParams}`)
+        .then((r) => r.json())
+        .then((data: { suggestion?: string | null }) =>
+          setRecommendationByEx((prev) => ({ ...prev, [ex.id]: data.suggestion ?? null }))
+        )
+        .catch(() => setRecommendationByEx((prev) => ({ ...prev, [ex.id]: null })));
+    };
+    if (expandedKey.startsWith("superset:")) {
+      const gid = expandedKey.slice("superset:".length);
+      exercises.filter((e) => e.supersetGroupId === gid).forEach(fetchRec);
+      return;
+    }
+    const ex = exercises.find((e) => e.id === expandedKey);
+    if (ex) fetchRec(ex);
+  }, [expandedKey, exercises, recommendationByEx, programId, currentWeekNumber]);
 
   async function setExerciseDisplay(exId: string, displayName: string | null) {
     if (!sessionId) return;
@@ -257,7 +361,7 @@ export function WorkoutLogClient({
     setLastSavedAt(new Date());
   }
 
-  async function handleAddSet(exerciseId: string) {
+  async function handleAddSet(exerciseId: string, exerciseName: string) {
     try {
       const res = await fetch(`/api/exercises/${exerciseId}/sets`, {
         method: "POST",
@@ -266,6 +370,9 @@ export function WorkoutLogClient({
       });
       if (!res.ok) throw new Error("Add set failed");
       router.refresh();
+      if (currentWeekNumber != null) {
+        setPropagatePending({ exerciseId, label: exerciseName });
+      }
     } catch (e) {
       console.error(e);
     }
@@ -343,38 +450,42 @@ export function WorkoutLogClient({
     }
   };
 
-  const handleExDragStart = (e: React.DragEvent, exerciseId: string) => {
-    setExDragId(exerciseId);
+  const handleExDragStart = (e: React.DragEvent, blockKey: string) => {
+    setExDragId(blockKey);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", exerciseId);
+    e.dataTransfer.setData("text/plain", blockKey);
   };
-  const handleExDragOver = (e: React.DragEvent, exerciseId: string) => {
+  const handleExDragOver = (e: React.DragEvent, blockKey: string) => {
     e.preventDefault();
-    if (exDragId && exDragId !== exerciseId) setExDropTargetId(exerciseId);
+    if (exDragId && exDragId !== blockKey) setExDropTargetId(blockKey);
   };
   const handleExDragLeave = () => setExDropTargetId(null);
-  const handleExDrop = async (e: React.DragEvent, targetId: string) => {
+  const handleExDrop = async (e: React.DragEvent, targetBlockKey: string) => {
     e.preventDefault();
     setExDropTargetId(null);
-    const sourceId = e.dataTransfer.getData("text/plain");
-    if (!sourceId || sourceId === targetId) {
+    const sourceKey = e.dataTransfer.getData("text/plain");
+    if (!sourceKey || sourceKey === targetBlockKey) {
       setExDragId(null);
       return;
     }
-    const srcIdx = exercises.findIndex((ex) => ex.id === sourceId);
-    const tgtIdx = exercises.findIndex((ex) => ex.id === targetId);
+    const blocks = buildExerciseBlocks(exercises);
+    const srcIdx = blocks.findIndex((b) => getExerciseBlockKey(b) === sourceKey);
+    const tgtIdx = blocks.findIndex((b) => getExerciseBlockKey(b) === targetBlockKey);
     if (srcIdx === -1 || tgtIdx === -1) {
       setExDragId(null);
       return;
     }
-    const newOrder = [...exercises];
-    const [removed] = newOrder.splice(srcIdx, 1);
-    newOrder.splice(tgtIdx, 0, removed);
+    const newBlocks = [...blocks];
+    const [removed] = newBlocks.splice(srcIdx, 1);
+    newBlocks.splice(tgtIdx, 0, removed);
+    const orderedIds = newBlocks.flatMap((b) =>
+      b.type === "single" ? [b.exercise.id] : [b.first.id, b.second.id]
+    );
     try {
       const res = await fetch(`/api/workout-day/${workoutDayId}/exercises`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderedExerciseIds: newOrder.map((ex) => ex.id) }),
+        body: JSON.stringify({ orderedExerciseIds: orderedIds }),
       });
       if (res.ok) router.refresh();
     } catch (err) {
@@ -415,7 +526,7 @@ export function WorkoutLogClient({
     }
   }
 
-  async function handleDeleteTemplateSet(setId: string, exerciseId: string) {
+  async function handleDeleteTemplateSet(setId: string, exerciseId: string, exerciseName?: string) {
     if (!setId) return;
     try {
       const res = await fetch(`/api/exercises/${exerciseId}/sets`, {
@@ -423,7 +534,12 @@ export function WorkoutLogClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ setId }),
       });
-      if (res.ok) router.refresh();
+      if (res.ok) {
+        router.refresh();
+        if (currentWeekNumber != null && exerciseName) {
+          setPropagatePending({ exerciseId, label: exerciseName });
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -443,6 +559,90 @@ export function WorkoutLogClient({
       setMovingExId(null);
     }
   };
+
+  const handlePropagate = async (exerciseId: string) => {
+    setPropagating(true);
+    try {
+      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exerciseId }),
+      });
+    } finally {
+      setPropagating(false);
+      setPropagatePending(null);
+    }
+  };
+
+  const handleCreateSuperset = async (exerciseId: string, partnerId: string) => {
+    if (!partnerId || exerciseId === partnerId) return;
+    try {
+      const res = await fetch(`/api/workout-day/${workoutDayId}/superset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exerciseIdA: exerciseId, exerciseIdB: partnerId }),
+      });
+      if (res.ok) router.refresh();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRemoveSuperset = async (exerciseId: string) => {
+    try {
+      const res = await fetch(`/api/workout-day/${workoutDayId}/superset`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exerciseId }),
+      });
+      if (res.ok) {
+        setExpandedKey(null);
+        router.refresh();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAddSupersetSets = async (idA: string, idB: string) => {
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch(`/api/exercises/${idA}/sets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+        fetch(`/api/exercises/${idB}/sets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+      ]);
+      if (r1.ok && r2.ok) router.refresh();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  async function handleSupersetRowDelete(
+    setNumber: number,
+    exA: Exercise,
+    exB: Exercise,
+    loggedA: LoggedSet | undefined,
+    loggedB: LoggedSet | undefined
+  ) {
+    const tmplA = templateForSetNumber(exA, setNumber);
+    const tmplB = templateForSetNumber(exB, setNumber);
+    const countA = Array.isArray(exA.templateSets) ? exA.templateSets.length : 0;
+    const countB = Array.isArray(exB.templateSets) ? exB.templateSets.length : 0;
+    const setIdA = tmplA.id ? String(tmplA.id) : "";
+    const setIdB = tmplB.id ? String(tmplB.id) : "";
+    if (loggedA) await handleDeleteLoggedSet(loggedA.id, exA.id, setNumber);
+    else if (setIdA && countA > 1) await handleDeleteTemplateSet(setIdA, exA.id, safeExerciseName(exA.name));
+    if (loggedB) await handleDeleteLoggedSet(loggedB.id, exB.id, setNumber);
+    else if (setIdB && countB > 1) await handleDeleteTemplateSet(setIdB, exB.id, safeExerciseName(exB.name));
+    router.refresh();
+  }
 
   if (exercises.length === 0) {
     return (
@@ -475,28 +675,474 @@ export function WorkoutLogClient({
     return "custom";
   };
 
-  const canReorderExercises = exercises.length >= 2;
+  const exerciseBlocks = buildExerciseBlocks(exercises);
+  const canReorderExercises = exerciseBlocks.length >= 2;
 
   return (
     <div className="space-y-4">
-      {exercises.map((ex) => {
+      {propagatePending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm flex-1">
+            Apply this change to <span className="font-medium">{propagatePending.label}</span> in all subsequent weeks too?
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="default"
+              className="h-8"
+              disabled={propagating}
+              onClick={() => void handlePropagate(propagatePending.exerciseId)}
+            >
+              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8"
+              disabled={propagating}
+              onClick={() => setPropagatePending(null)}
+            >
+              No, just this week
+            </Button>
+          </div>
+        </div>
+      )}
+      {exerciseBlocks.map((block) => {
+        const bKey = getExerciseBlockKey(block);
+        if (block.type === "superset") {
+          const { first: exA, second: exB } = block;
+          const loggedA = loggedByExercise[exA.id] ?? [];
+          const loggedB = loggedByExercise[exB.id] ?? [];
+          const prevA = previousByExercise[exA.id] ?? [];
+          const prevB = previousByExercise[exB.id] ?? [];
+          const dispA = overridesByExercise[exA.id] ?? safeExerciseName(exA.name);
+          const dispB = overridesByExercise[exB.id] ?? safeExerciseName(exB.name);
+          const isEx = expandedKey === bKey;
+          const setCount = maxDisplayedSetCount(exA, exB, loggedA, loggedB);
+          return (
+            <div
+              key={bKey}
+              onDragOver={canReorderExercises ? (e) => handleExDragOver(e, bKey) : undefined}
+              onDragLeave={handleExDragLeave}
+              onDrop={canReorderExercises ? (e) => handleExDrop(e, bKey) : undefined}
+              className={canReorderExercises && exDropTargetId === bKey ? "ring-2 ring-primary rounded-lg" : ""}
+            >
+              <Card className={exDragId === bKey ? "opacity-60" : ""}>
+                <CardHeader className="cursor-pointer py-4" onClick={() => setExpandedKey(isEx ? null : bKey)}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-1 min-w-0 flex-1">
+                      {canReorderExercises && (
+                        <div
+                          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground touch-none mt-0.5"
+                          draggable
+                          onDragStart={(e) => handleExDragStart(e, bKey)}
+                          onDragEnd={handleExDragEnd}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-hidden
+                        >
+                          <GripVertical className="h-4 w-4" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <Link2 className="h-3 w-3" />
+                          Superset
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <CardTitle className="text-base">{dispA}</CardTitle>
+                            {(() => {
+                              const rr = repRangeLabel(exA.templateSets?.[0]?.targetReps ?? null);
+                              return rr ? <p className="text-xs text-muted-foreground mt-0.5">Rep range: {rr}</p> : null;
+                            })()}
+                          </div>
+                          <div>
+                            <CardTitle className="text-base">{dispB}</CardTitle>
+                            {(() => {
+                              const rr = repRangeLabel(exB.templateSets?.[0]?.targetReps ?? null);
+                              return rr ? <p className="text-xs text-muted-foreground mt-0.5">Rep range: {rr}</p> : null;
+                            })()}
+                          </div>
+                        </div>
+                        {isEx && recommendationByEx[exA.id] && (
+                          <p className="text-xs text-primary font-medium">{recommendationByEx[exA.id]}</p>
+                        )}
+                        {isEx && recommendationByEx[exB.id] && (
+                          <p className="text-xs text-primary font-medium">{recommendationByEx[exB.id]}</p>
+                        )}
+                        {!isEx && (prevA.length > 0 || prevB.length > 0) && (
+                          <p className="text-xs text-muted-foreground">
+                            {prevA.length > 0 && (
+                              <span>
+                                {dispA}: {prevA.slice(0, 2).map((s) => `${s.reps ?? "?"}×${s.weight ?? "?"}`).join(", ")}
+                              </span>
+                            )}
+                            {prevA.length > 0 && prevB.length > 0 && " · "}
+                            {prevB.length > 0 && (
+                              <span>
+                                {dispB}: {prevB.slice(0, 2).map((s) => `${s.reps ?? "?"}×${s.weight ?? "?"}`).join(", ")}
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex flex-wrap gap-1 justify-end">
+                        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" asChild>
+                          <Link
+                            href={`/history/name/${encodeURIComponent(safeExerciseName(exA.name))}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center"
+                          >
+                            <History className="h-4 w-4 mr-1" />
+                            A
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" asChild>
+                          <Link
+                            href={`/history/name/${encodeURIComponent(safeExerciseName(exB.name))}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center"
+                          >
+                            <History className="h-4 w-4 mr-1" />
+                            B
+                          </Link>
+                        </Button>
+                      </div>
+                      {isEx ? (
+                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                {isEx && (
+                  <CardContent className="pt-0 space-y-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {[exA, exB].map((exItem) => {
+                        const prev = exItem.id === exA.id ? prevA : prevB;
+                        return (
+                          <div key={exItem.id}>
+                            {prev.length > 0 && (
+                              <div className="rounded-md bg-muted/50 p-3 text-sm mb-2">
+                                <p className="font-medium text-muted-foreground mb-1">
+                                  {overridesByExercise[exItem.id] ?? safeExerciseName(exItem.name)} — Previous
+                                </p>
+                                <div className="flex flex-col gap-1.5">
+                                  {prev.slice(0, 6).map((s, i) => (
+                                    <span key={i} className="text-muted-foreground text-xs">
+                                      Set {s.setNumber}: {s.reps ?? "—"}×{s.weight ?? "—"} lb
+                                      {s.rir != null ? ` RIR${s.rir}` : ""}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Replace className="h-3 w-3" />
+                                Replace
+                              </span>
+                              <select
+                                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                                value={getReplaceSelectValue(exItem)}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "") setExerciseDisplay(exItem.id, null);
+                                  else if (v === "sub1" && exItem.substitution1)
+                                    setExerciseDisplay(exItem.id, exItem.substitution1);
+                                  else if (v === "sub2" && exItem.substitution2)
+                                    setExerciseDisplay(exItem.id, exItem.substitution2);
+                                  else if (v === "custom") {
+                                    setCustomReplaceExId(exItem.id);
+                                    setCustomReplaceValue(overridesByExercise[exItem.id] ?? "");
+                                  }
+                                }}
+                              >
+                                <option value="">Original: {safeExerciseName(exItem.name)}</option>
+                                {exItem.substitution1 && <option value="sub1">{exItem.substitution1}</option>}
+                                {exItem.substitution2 && <option value="sub2">{exItem.substitution2}</option>}
+                                <option value="custom">Type custom...</option>
+                              </select>
+                              {customReplaceExId === exItem.id && (
+                                <>
+                                  <Input
+                                    className="h-8 w-40 text-sm"
+                                    placeholder="Exercise name"
+                                    value={customReplaceValue}
+                                    onChange={(e) => setCustomReplaceValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") void setExerciseDisplay(exItem.id, customReplaceValue);
+                                    }}
+                                    onBlur={(e) => {
+                                      if (!e.relatedTarget) setCustomReplaceExId(null);
+                                    }}
+                                    autoFocus
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="h-8"
+                                    onPointerDown={(e) => e.preventDefault()}
+                                    onClick={() => void setExerciseDisplay(exItem.id, customReplaceValue)}
+                                  >
+                                    Save
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="space-y-3">
+                      <div className="hidden lg:grid lg:grid-cols-[1fr_1fr_auto] gap-x-2 gap-y-0 px-0.5 mb-1">
+                        <div className="text-sm font-semibold leading-tight truncate pb-2 border-b border-border">
+                          {dispA}
+                        </div>
+                        <div className="text-sm font-semibold leading-tight truncate pb-2 border-b border-border">
+                          {dispB}
+                        </div>
+                        <div className="w-8 pb-2 border-b border-border shrink-0" aria-hidden />
+                      </div>
+                      {Array.from({ length: setCount }, (_, i) => i + 1).map((sn) => {
+                        const tmplA = templateForSetNumber(exA, sn);
+                        const tmplB = templateForSetNumber(exB, sn);
+                        const existingA = loggedA.find((l) => l.setNumber === sn);
+                        const existingB = loggedB.find((l) => l.setNumber === sn);
+                        const setIdA = tmplA.id ? String(tmplA.id) : "";
+                        const setIdB = tmplB.id ? String(tmplB.id) : "";
+                        const countTA = Array.isArray(exA.templateSets) ? exA.templateSets.length : 0;
+                        const countTB = Array.isArray(exB.templateSets) ? exB.templateSets.length : 0;
+                        const canRowDel =
+                          !!existingA || !!existingB || (setIdA && countTA > 1) || (setIdB && countTB > 1);
+                        const onRowDel = () => void handleSupersetRowDelete(sn, exA, exB, existingA, existingB);
+                        const hideSetNum = !isLgScreen;
+                        const rowInner = (
+                          <div
+                            className={
+                              isLgScreen
+                                ? "flex flex-row gap-2 items-stretch"
+                                : "flex flex-col rounded-xl border border-border bg-card/50 overflow-hidden shadow-sm"
+                            }
+                          >
+                            {!isLgScreen && (
+                              <div className="bg-muted/80 px-3 py-2 text-center border-b border-border">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Set {sn}
+                                </span>
+                              </div>
+                            )}
+                            <div
+                              className={
+                                isLgScreen
+                                  ? "flex min-w-0 flex-1 flex-row gap-2 items-stretch"
+                                  : "flex flex-col gap-3 p-3"
+                              }
+                            >
+                              <div className="flex-1 min-w-0 space-y-1.5">
+                                {!isLgScreen && (
+                                  <p className="text-sm font-semibold text-foreground truncate border-l-2 border-primary pl-2">
+                                    {dispA}
+                                  </p>
+                                )}
+                                <div
+                                  className={
+                                    isLgScreen ? "" : "rounded-lg border border-primary/25 bg-primary/5 p-1"
+                                  }
+                                >
+                                  <SetRow
+                                    setNumber={sn}
+                                    hideSetNumber={hideSetNum}
+                                    targetReps={tmplA.targetReps}
+                                    targetWeight={tmplA.targetWeight}
+                                    targetRir={tmplA.targetRir ?? null}
+                                    initialReps={existingA?.reps ?? tmplA.targetReps ?? undefined}
+                                    initialWeight={
+                                      existingA?.weight ??
+                                      tmplA.targetWeight ??
+                                      (prevA[0]?.weight != null ? prevA[0]?.weight : undefined)
+                                    }
+                                    initialRir={existingA?.rir ?? tmplA.targetRir ?? undefined}
+                                    onLog={(reps, weight, rir, isWarmup) =>
+                                      logSet(exA.id, sn, { reps, weight, rir, isWarmup })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0 space-y-1.5">
+                                {!isLgScreen && (
+                                  <p className="text-sm font-semibold text-foreground truncate border-l-2 border-secondary pl-2">
+                                    {dispB}
+                                  </p>
+                                )}
+                                <div
+                                  className={
+                                    isLgScreen ? "" : "rounded-lg border border-secondary/40 bg-secondary/15 p-1"
+                                  }
+                                >
+                                  <SetRow
+                                    setNumber={sn}
+                                    hideSetNumber={hideSetNum}
+                                    targetReps={tmplB.targetReps}
+                                    targetWeight={tmplB.targetWeight}
+                                    targetRir={tmplB.targetRir ?? null}
+                                    initialReps={existingB?.reps ?? tmplB.targetReps ?? undefined}
+                                    initialWeight={
+                                      existingB?.weight ??
+                                      tmplB.targetWeight ??
+                                      (prevB[0]?.weight != null ? prevB[0]?.weight : undefined)
+                                    }
+                                    initialRir={existingB?.rir ?? tmplB.targetRir ?? undefined}
+                                    onLog={(reps, weight, rir, isWarmup) =>
+                                      logSet(exB.id, sn, { reps, weight, rir, isWarmup })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            {canRowDel && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className={`h-8 shrink-0 text-muted-foreground hover:text-destructive hidden md:inline-flex ${isLgScreen ? "self-center" : "self-end mr-3 mb-2"}`}
+                                onClick={onRowDel}
+                                aria-label="Delete superset row"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        );
+                        return canRowDel ? (
+                          <SwipeToDeleteRow key={`ss-${sn}`} onDelete={onRowDel} className="rounded-lg">
+                            {rowInner}
+                          </SwipeToDeleteRow>
+                        ) : (
+                          <div key={`ss-${sn}`}>{rowInner}</div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-2"
+                      onClick={() => void handleAddSupersetSets(exA.id, exB.id)}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add set (both)
+                    </Button>
+                    <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-border">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-muted-foreground"
+                        onClick={() => void handleRemoveSuperset(exA.id)}
+                      >
+                        <Link2 className="h-3.5 w-3.5 mr-1" />
+                        Split superset
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDeleteExercise(exA.id)}
+                        disabled={deletingExId === exA.id}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Delete {dispA}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => handleDeleteExercise(exB.id)}
+                        disabled={deletingExId === exB.id}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                        Delete {dispB}
+                      </Button>
+                      {programId && programDays && programDays.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <ArrowRightCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <span className="text-xs text-muted-foreground">Move A:</span>
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-[120px]"
+                            value=""
+                            onChange={(e) => {
+                              const dayId = e.target.value;
+                              if (dayId) void handleMoveExercise(exA.id, dayId);
+                              e.target.value = "";
+                            }}
+                            disabled={movingExId === exA.id}
+                          >
+                            <option value="">Select day…</option>
+                            {programDays
+                              .filter((d) => d.id !== workoutDayId)
+                              .map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  W{d.weekNumber} D{d.dayNumber}
+                                  {d.name ? ` — ${d.name}` : ""}
+                                </option>
+                              ))}
+                          </select>
+                          <span className="text-xs text-muted-foreground">B:</span>
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-[120px]"
+                            value=""
+                            onChange={(e) => {
+                              const dayId = e.target.value;
+                              if (dayId) void handleMoveExercise(exB.id, dayId);
+                              e.target.value = "";
+                            }}
+                            disabled={movingExId === exB.id}
+                          >
+                            <option value="">Select day…</option>
+                            {programDays
+                              .filter((d) => d.id !== workoutDayId)
+                              .map((d) => (
+                                <option key={`b-${d.id}`} value={d.id}>
+                                  W{d.weekNumber} D{d.dayNumber}
+                                  {d.name ? ` — ${d.name}` : ""}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            </div>
+          );
+        }
+        const ex = block.exercise;
         const logged = loggedByExercise[ex.id] ?? [];
         const previous = previousByExercise[ex.id] ?? [];
-        const isExpanded = expandedExercise === ex.id;
+        const isExpanded = expandedKey === bKey;
         const displayName = overridesByExercise[ex.id] ?? safeExerciseName(ex.name);
         const showCustomInput = customReplaceExId === ex.id;
         return (
           <div
-            key={ex.id}
-            onDragOver={canReorderExercises ? (e) => handleExDragOver(e, ex.id) : undefined}
+            key={bKey}
+            onDragOver={canReorderExercises ? (e) => handleExDragOver(e, bKey) : undefined}
             onDragLeave={handleExDragLeave}
-            onDrop={canReorderExercises ? (e) => handleExDrop(e, ex.id) : undefined}
-            className={canReorderExercises && exDropTargetId === ex.id ? "ring-2 ring-primary rounded-lg" : ""}
+            onDrop={canReorderExercises ? (e) => handleExDrop(e, bKey) : undefined}
+            className={canReorderExercises && exDropTargetId === bKey ? "ring-2 ring-primary rounded-lg" : ""}
           >
-            <Card className={exDragId === ex.id ? "opacity-60" : ""}>
+            <Card className={exDragId === bKey ? "opacity-60" : ""}>
               <CardHeader
                 className="cursor-pointer py-4"
-                onClick={() => setExpandedExercise(isExpanded ? null : ex.id)}
+                onClick={() => setExpandedKey(isExpanded ? null : bKey)}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-1 min-w-0 flex-1">
@@ -504,7 +1150,7 @@ export function WorkoutLogClient({
                       <div
                         className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground touch-none mt-0.5"
                         draggable
-                        onDragStart={(e) => handleExDragStart(e, ex.id)}
+                        onDragStart={(e) => handleExDragStart(e, bKey)}
                         onDragEnd={handleExDragEnd}
                         onClick={(e) => e.stopPropagation()}
                         aria-hidden
@@ -570,11 +1216,12 @@ export function WorkoutLogClient({
                             value={customReplaceValue}
                             onChange={(e) => setCustomReplaceValue(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") setExerciseDisplay(ex.id, customReplaceValue);
+                              if (e.key === "Enter") void setExerciseDisplay(ex.id, customReplaceValue);
                             }}
-                            onBlur={() => {
-                              if (customReplaceValue.trim()) setExerciseDisplay(ex.id, customReplaceValue);
-                              else setCustomReplaceExId(null);
+                            onBlur={(e) => {
+                              // Don't auto-save on blur — let the Save button handle it to avoid
+                              // the blur-before-click race on mobile (iOS fires blur before onClick)
+                              if (!e.relatedTarget) setCustomReplaceExId(null);
                             }}
                             autoFocus
                           />
@@ -582,12 +1229,42 @@ export function WorkoutLogClient({
                             size="sm"
                             variant="secondary"
                             className="h-8"
-                            onClick={() => setExerciseDisplay(ex.id, customReplaceValue)}
+                            onPointerDown={(e) => e.preventDefault()}
+                            onClick={() => void setExerciseDisplay(ex.id, customReplaceValue)}
                           >
                             Save
                           </Button>
                         </>
                       )}
+                    </div>
+                  )}
+                  {isExpanded && (
+                    <div
+                      className="mt-2 flex flex-wrap items-center gap-2 w-full"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Link2 className="h-3 w-3" />
+                        Superset with
+                      </span>
+                      <select
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs min-w-0 max-w-[min(100%,220px)]"
+                        value=""
+                        onChange={(e) => {
+                          const pid = e.target.value;
+                          if (pid) void handleCreateSuperset(ex.id, pid);
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">Choose from this workout…</option>
+                        {exercises
+                          .filter((o) => o.id !== ex.id)
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {overridesByExercise[o.id] ?? safeExerciseName(o.name)}
+                            </option>
+                          ))}
+                      </select>
                     </div>
                   )}
                     </div>
@@ -649,7 +1326,7 @@ export function WorkoutLogClient({
                     const canDelete = setId && (existing ? true : orderedSetIds.length > 1);
                     const onDelete = existing
                       ? () => handleDeleteLoggedSet(existing.id, ex.id, tmpl.setNumber)
-                      : () => handleDeleteTemplateSet(setId, ex.id);
+                      : () => handleDeleteTemplateSet(setId, ex.id, safeExerciseName(ex.name));
                     const rowContent = (
                       <div
                         key={setId || `set-${tmpl.setNumber}`}
@@ -713,7 +1390,7 @@ export function WorkoutLogClient({
                   variant="outline"
                   size="sm"
                   className="w-full mt-2"
-                  onClick={() => handleAddSet(ex.id)}
+                  onClick={() => handleAddSet(ex.id, safeExerciseName(ex.name))}
                 >
                   <Plus className="h-4 w-4 mr-1" />
                   Add set
@@ -798,6 +1475,7 @@ export function WorkoutLogClient({
 
 function SetRow({
   setNumber,
+  hideSetNumber,
   targetReps,
   targetWeight,
   targetRir,
@@ -807,6 +1485,8 @@ function SetRow({
   onLog,
 }: {
   setNumber: number;
+  /** When true, set index is only exposed to screen readers (e.g. superset mobile stack with a Set N header). */
+  hideSetNumber?: boolean;
   targetReps: number | null;
   targetWeight: number | null;
   targetRir: number | null;
@@ -847,9 +1527,11 @@ function SetRow({
 
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3">
-      <span className="w-8 shrink-0 text-sm font-medium text-muted-foreground">
-        {setNumber}
-      </span>
+      {hideSetNumber ? (
+        <span className="sr-only">Set {setNumber}</span>
+      ) : (
+        <span className="w-8 shrink-0 text-sm font-medium text-muted-foreground">{setNumber}</span>
+      )}
       <div className="flex-1 min-w-[80px]">
         <Label className="text-xs">Reps</Label>
         <div className="flex items-center gap-0.5 mt-0.5">

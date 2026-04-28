@@ -218,6 +218,11 @@ export function HistoryDetailClient({
     return { dates, byDate: acc };
   }, [setsWithVolume]);
 
+  /** Epley 1RM: weight * (1 + reps/30) */
+  function epley1RM(weight: number, reps: number): number {
+    return Math.round(weight * (1 + reps / 30) * 10) / 10;
+  }
+
   const chartData = useMemo(() => {
     return byDate.dates
       .slice()
@@ -226,17 +231,24 @@ export function HistoryDetailClient({
         const daySets = byDate.byDate[date] ?? [];
         let volume = 0;
         let topWeight = 0;
+        let best1RM = 0;
         for (const s of daySets) {
           const effectiveWeight = getEffectiveWeight(s.weight, s.completedAt, bodyLogs, exerciseName);
           const w = effectiveWeight ?? 0;
-          volume += (s.reps ?? 0) * w;
+          const r = s.reps ?? 0;
+          volume += r * w;
           if (w > topWeight) topWeight = w;
+          if (w > 0 && r > 0) {
+            const est = epley1RM(w, r);
+            if (est > best1RM) best1RM = est;
+          }
         }
         return {
           date,
           label: formatDate(date),
           volume: Math.round(volume),
           topWeight: topWeight > 0 ? Math.round(topWeight * 10) / 10 : null,
+          est1RM: best1RM > 0 ? best1RM : null,
         };
       })
       .filter((d) => d.volume > 0);
@@ -268,6 +280,21 @@ export function HistoryDetailClient({
     const yMax = dataMax + padding;
     return [yMin, yMax] as [number, number];
   }, [weightValues]);
+
+  const est1RMValues = useMemo(
+    () => chartData.map((d) => d.est1RM).filter((v): v is number => v != null && v > 0),
+    [chartData]
+  );
+  const est1RMDomain = useMemo(() => {
+    if (est1RMValues.length === 0) return undefined;
+    const dataMin = Math.min(...est1RMValues);
+    const dataMax = Math.max(...est1RMValues);
+    const range = dataMax - dataMin;
+    const padding = range === 0 ? Math.max(dataMin * 0.1, 1) : range * 0.1;
+    const yMin = Math.max(0, dataMin - padding);
+    const yMax = dataMax + padding;
+    return [yMin, yMax] as [number, number];
+  }, [est1RMValues]);
 
   const { summaryText, insightText } = useMemo(() => {
     const totalVolume = setsWithVolume.reduce((sum, s) => {
@@ -524,11 +551,11 @@ export function HistoryDetailClient({
                     className="text-muted-foreground"
                     tickFormatter={(v) => `${v}`}
                   />
-                  {weightDomain && weightValues.length > 0 && (
+                  {(weightValues.length > 0 || est1RMValues.length > 0) && (
                     <YAxis
                       yAxisId="weight"
                       orientation="right"
-                      domain={weightDomain}
+                      domain={est1RMValues.length > 0 ? est1RMDomain : weightDomain}
                       tick={{ fontSize: 10 }}
                       className="text-muted-foreground"
                       tickFormatter={(v) => `${v} lb`}
@@ -538,13 +565,14 @@ export function HistoryDetailClient({
                     formatter={(value: number, name: string) => {
                       if (name === "volume") return [`${value} lb`, "Volume"];
                       if (name === "topWeight") return [value != null ? `${value} lb` : "—", "Top weight"];
+                      if (name === "est1RM") return [value != null ? `${value} lb` : "—", "Est. 1RM"];
                       return [value, name];
                     }}
                     labelFormatter={(label) => label}
                   />
                   <Legend
                     wrapperStyle={{ fontSize: 11 }}
-                    formatter={(value) => (value === "volume" ? "Volume" : value === "topWeight" ? "Top weight" : value)}
+                    formatter={(value) => (value === "volume" ? "Volume" : value === "topWeight" ? "Top weight" : value === "est1RM" ? "Est. 1RM" : value)}
                   />
                   <Line
                     yAxisId="volume"
@@ -564,6 +592,19 @@ export function HistoryDetailClient({
                       stroke="hsl(142, 76%, 36%)"
                       strokeWidth={2}
                       strokeDasharray="4 2"
+                      dot={{ r: 3 }}
+                      connectNulls={false}
+                    />
+                  )}
+                  {est1RMValues.length > 0 && (
+                    <Line
+                      yAxisId="weight"
+                      type="monotone"
+                      dataKey="est1RM"
+                      name="est1RM"
+                      stroke="hsl(38, 92%, 50%)"
+                      strokeWidth={2}
+                      strokeDasharray="2 2"
                       dot={{ r: 3 }}
                       connectNulls={false}
                     />

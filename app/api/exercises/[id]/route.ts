@@ -13,6 +13,16 @@ export async function DELETE(
     where: { id, workoutDay: { week: { program: { userId } } } },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+  if (exercise.supersetGroupId) {
+    await prisma.exercise.updateMany({
+      where: {
+        workoutDayId: exercise.workoutDayId,
+        supersetGroupId: exercise.supersetGroupId,
+        id: { not: id },
+      },
+      data: { supersetGroupId: null },
+    });
+  }
   await prisma.exercise.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }
@@ -24,11 +34,12 @@ export async function PATCH(
   const userId = await requireUserId();
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const data: {
+  let data: {
     name?: string;
     substitution1?: string | null;
     substitution2?: string | null;
     workoutDayId?: string;
+    supersetGroupId?: string | null;
   } = {};
   if (typeof body.name === "string") data.name = body.name.trim();
   if (body.substitution1 !== undefined) data.substitution1 = body.substitution1 ? String(body.substitution1).trim() : null;
@@ -51,6 +62,19 @@ export async function PATCH(
     where: { id, workoutDay: { week: { program: { userId } } } },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+  if (data.workoutDayId != null && data.workoutDayId !== exercise.workoutDayId && exercise.supersetGroupId) {
+    await prisma.exercise.updateMany({
+      where: {
+        workoutDayId: exercise.workoutDayId,
+        supersetGroupId: exercise.supersetGroupId,
+        id: { not: id },
+      },
+      data: { supersetGroupId: null },
+    });
+    data = { ...data, supersetGroupId: null };
+  }
+
   const updated = await prisma.exercise.update({
     where: { id },
     data,

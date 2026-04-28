@@ -55,17 +55,21 @@ model WorkoutDay {
 }
 
 model Exercise {
-  id             String   @id @default(cuid())
-  workoutDayId   String
-  name           String
-  orderIndex     Int      @default(0)
-  substitution1  String?
-  substitution2  String?
-  workoutDay     WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  workoutDayId     String
+  name             String
+  orderIndex       Int      @default(0)
+  substitution1    String?
+  substitution2    String?
+  /// Two exercises on the same day with the same non-null value are shown and logged as a superset pair.
+  supersetGroupId  String?
+  workoutDay       WorkoutDay @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
 
-  templateSets   ExerciseSet[]
-  loggedSets     LoggedSet[]
+  templateSets     ExerciseSet[]
+  loggedSets       LoggedSet[]
   displayOverrides ExerciseOverride[]
+
+  @@index([workoutDayId, supersetGroupId])
 }
 
 model ExerciseSet {
