@@ -32,11 +32,19 @@ export default async function WorkoutPage({
   const userId = await getCurrentUserId();
   if (!userId) notFound();
   const { id } = await params;
-  const day = await getWorkoutDay(id, userId);
+  const [day, latestBodyLog] = await Promise.all([
+    getWorkoutDay(id, userId),
+    prisma.bodyMetricLog.findFirst({
+      where: { userId, weightLb: { not: null } },
+      orderBy: { date: "desc" },
+      select: { weightLb: true },
+    }),
+  ]);
   if (!day) notFound();
 
   const programId = day.week?.program?.id ?? null;
   const programName = day.week?.program?.name ?? null;
+  const bodyWeightLb = latestBodyLog?.weightLb ?? null;
 
   let serializedExercises: Parameters<typeof WorkoutLogClient>[0]["exercises"] = [];
   try {
@@ -74,6 +82,7 @@ export default async function WorkoutPage({
         exercises={serializedExercises}
         programId={programId ?? undefined}
         currentWeekNumber={day.week?.weekNumber ?? undefined}
+        bodyWeightLb={bodyWeightLb ?? undefined}
       />
     </div>
   );

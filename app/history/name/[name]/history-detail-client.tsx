@@ -67,15 +67,15 @@ function getClosestWeightLb(setDate: string, bodyLogs: BodyLogEntry[]): number |
 
 /** True if exercise is typically bodyweight (dips, pull-ups, etc.) where logged weight is an offset: 0 = BW, + = weighted, - = assisted. */
 function isBodyweightExercise(name: string): boolean {
-  const n = name.toLowerCase();
+  const n = name.toLowerCase().replace(/[-_\s]+/g, "");
   return (
     n.includes("dip") ||
-    n.includes("pull-up") ||
     n.includes("pullup") ||
-    n.includes("chin-up") ||
     n.includes("chinup") ||
-    n.includes("push-up") ||
-    n.includes("pushup")
+    n.includes("pushup") ||
+    n.includes("muscleup") ||
+    n.includes("ringrow") ||
+    n.includes("invertedrow")
   );
 }
 

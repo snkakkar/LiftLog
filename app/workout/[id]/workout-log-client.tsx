@@ -149,6 +149,19 @@ function repRangeLabel(targetReps: number | null, targetRepsMin?: number | null)
   return `${targetReps} reps`;
 }
 
+function isBodyweightExercise(name: string): boolean {
+  const n = name.toLowerCase().replace(/[-_\s]+/g, "");
+  return (
+    n.includes("dip") ||
+    n.includes("pullup") ||
+    n.includes("chinup") ||
+    n.includes("pushup") ||
+    n.includes("muscleup") ||
+    n.includes("ringrow") ||
+    n.includes("invertedrow")
+  );
+}
+
 /** Epley 1RM estimate: weight * (1 + reps/30). Returns null if invalid. */
 function epley1RM(weight: number | null | undefined, reps: number | null | undefined): number | null {
   if (weight == null || reps == null || weight <= 0 || reps <= 0) return null;
@@ -161,11 +174,13 @@ export function WorkoutLogClient({
   exercises: exercisesProp,
   programId,
   currentWeekNumber,
+  bodyWeightLb,
 }: {
   workoutDayId: string;
   exercises: Exercise[];
   programId?: string;
   currentWeekNumber?: number;
+  bodyWeightLb?: number;
 }) {
   const exercises = Array.isArray(exercisesProp) ? exercisesProp : [];
   const router = useRouter();
@@ -1061,6 +1076,8 @@ export function WorkoutLogClient({
                                       (prevA[0]?.weight != null ? prevA[0]?.weight : undefined)
                                     }
                                     initialRir={existingA?.rir ?? tmplA.targetRir ?? undefined}
+                                    isBodyweight={isBodyweightExercise(safeExerciseName(exA.name))}
+                                    bodyWeightLb={bodyWeightLb}
                                     onLog={(reps, weight, rir, isWarmup) =>
                                       logSet(exA.id, sn, { reps, weight, rir, isWarmup })
                                     }
@@ -1091,6 +1108,8 @@ export function WorkoutLogClient({
                                       (prevB[0]?.weight != null ? prevB[0]?.weight : undefined)
                                     }
                                     initialRir={existingB?.rir ?? tmplB.targetRir ?? undefined}
+                                    isBodyweight={isBodyweightExercise(safeExerciseName(exB.name))}
+                                    bodyWeightLb={bodyWeightLb}
                                     onLog={(reps, weight, rir, isWarmup) =>
                                       logSet(exB.id, sn, { reps, weight, rir, isWarmup })
                                     }
@@ -1454,6 +1473,8 @@ export function WorkoutLogClient({
                             initialReps={existing?.reps ?? tmpl.targetReps ?? undefined}
                             initialWeight={existing?.weight ?? tmpl.targetWeight ?? (lastWeight != null ? lastWeight : undefined)}
                             initialRir={existing?.rir ?? tmpl.targetRir ?? undefined}
+                            isBodyweight={isBodyweightExercise(safeExerciseName(ex.name))}
+                            bodyWeightLb={bodyWeightLb}
                             onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup })}
                           />
                         </div>
@@ -1689,6 +1710,8 @@ function SetRow({
   initialReps,
   initialWeight,
   initialRir,
+  isBodyweight,
+  bodyWeightLb,
   onLog,
 }: {
   setNumber: number;
@@ -1700,6 +1723,8 @@ function SetRow({
   initialReps: number | null | undefined;
   initialWeight: number | null | undefined;
   initialRir: number | null | undefined;
+  isBodyweight?: boolean;
+  bodyWeightLb?: number;
   onLog: (reps?: number, weight?: number, rir?: number, isWarmup?: boolean) => void | Promise<void>;
 }) {
   const [reps, setReps] = useState(initialReps ?? undefined);
@@ -1708,11 +1733,16 @@ function SetRow({
   const [isWarmup, setIsWarmup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedJustNow, setSavedJustNow] = useState(false);
+  // True once the user has explicitly entered reps for this row
+  const [repsEntered, setRepsEntered] = useState(
+    initialReps != null && initialReps > 0
+  );
 
   useEffect(() => {
     setReps(initialReps ?? undefined);
     setWeight(initialWeight ?? undefined);
     setRir(initialRir ?? undefined);
+    setRepsEntered(initialReps != null && initialReps > 0);
   }, [initialReps, initialWeight, initialRir]);
 
   const handleSave = async () => {
@@ -1757,7 +1787,11 @@ function SetRow({
             inputMode="numeric"
             placeholder={targetReps != null ? String(targetReps) : "—"}
             value={reps != null ? String(reps) : ""}
-            onChange={(e) => setReps(e.target.value ? parseInt(e.target.value, 10) : undefined)}
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+              setReps(val);
+              if (val != null && val > 0) setRepsEntered(true);
+            }}
             className="h-9 flex-1 min-w-0"
           />
           <Button
@@ -1765,14 +1799,20 @@ function SetRow({
             variant="outline"
             size="icon"
             className="h-9 w-9 shrink-0 hidden md:flex"
-            onClick={() => setReps((r) => inc(r, 1))}
+            onClick={() => { setReps((r) => inc(r, 1)); setRepsEntered(true); }}
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
       <div className="flex-1 min-w-[80px]">
-        <Label className="text-xs">Weight (lb)</Label>
+        <Label className="text-xs">
+          {isBodyweight
+            ? bodyWeightLb != null
+              ? `Added weight (BW: ${bodyWeightLb} lb)`
+              : "Added weight (lb)"
+            : "Weight (lb)"}
+        </Label>
         <div className="flex items-center gap-0.5 mt-0.5">
           <Button
             type="button"
@@ -1833,7 +1873,7 @@ function SetRow({
       <Button
         size="sm"
         onClick={() => void handleSave()}
-        disabled={saving}
+        disabled={saving || !repsEntered}
         variant={savedJustNow ? "secondary" : "default"}
         className={savedJustNow ? "text-green-700 border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 dark:text-green-400" : ""}
       >
