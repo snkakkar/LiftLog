@@ -131,6 +131,25 @@ export async function POST(
     return NextResponse.json({ ok: true, updatedWeeks });
   }
 
+  // --- Rename propagation ---
+  if (typeof body.renameTo === "string" && typeof body.oldName === "string") {
+    const oldName = body.oldName as string;
+    const newName = (body.renameTo as string).trim();
+    if (!newName) return NextResponse.json({ error: "renameTo must be non-empty" }, { status: 400 });
+
+    for (const week of subsequentWeeks) {
+      const targetDay = week.days[0];
+      if (!targetDay) continue;
+      const tgtEx = targetDay.exercises.find(
+        (e) => e.name.toLowerCase() === oldName.toLowerCase()
+      );
+      if (!tgtEx) continue;
+      await prisma.exercise.update({ where: { id: tgtEx.id }, data: { name: newName } });
+      updatedWeeks++;
+    }
+    return NextResponse.json({ ok: true, updatedWeeks });
+  }
+
   // --- Template sets propagation ---
   const filterExerciseId: string | undefined =
     typeof body.exerciseId === "string" ? body.exerciseId : undefined;

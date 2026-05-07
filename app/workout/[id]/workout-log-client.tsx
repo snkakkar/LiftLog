@@ -20,6 +20,8 @@ import {
   ArrowRightCircle,
   History,
   Link2,
+  Pencil,
+  X,
 } from "lucide-react";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 
@@ -182,8 +184,9 @@ export function WorkoutLogClient({
     const b0 = blocks[0];
     return b0 ? getExerciseBlockKey(b0) : null;
   });
-  const [customReplaceExId, setCustomReplaceExId] = useState<string | null>(null);
-  const [customReplaceValue, setCustomReplaceValue] = useState("");
+  const [renamingExId, setRenamingExId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renamePending, setRenamePending] = useState<{ oldName: string; newName: string } | null>(null);
   const [recommendationByEx, setRecommendationByEx] = useState<Record<string, string | null>>({});
   const [addExerciseName, setAddExerciseName] = useState("");
   const [addExerciseLoading, setAddExerciseLoading] = useState(false);
@@ -334,9 +337,42 @@ export function WorkoutLogClient({
       if (!res.ok) return;
       setOverridesByExercise((prev) => ({ ...prev, [exId]: displayName.trim() }));
     }
-    setCustomReplaceExId(null);
-    setCustomReplaceValue("");
     setLastSavedAt(new Date());
+  }
+
+  async function handleRenameExercise(exId: string, oldName: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setRenamingExId(null);
+      setRenameValue("");
+      return;
+    }
+    const res = await fetch(`/api/exercises/${exId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    if (!res.ok) return;
+    setRenamingExId(null);
+    setRenameValue("");
+    router.refresh();
+    if (currentWeekNumber != null) {
+      setRenamePending({ oldName, newName: trimmed });
+    }
+  }
+
+  async function handlePropagateRename(oldName: string, newName: string) {
+    setPropagating(true);
+    try {
+      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldName, renameTo: newName }),
+      });
+    } finally {
+      setPropagating(false);
+      setRenamePending(null);
+    }
   }
 
   async function logSet(
@@ -730,6 +766,23 @@ export function WorkoutLogClient({
           </div>
         </div>
       )}
+      {renamePending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm flex-1">
+            Rename <span className="font-medium break-words">{renamePending.oldName}</span> → <span className="font-medium break-words">{renamePending.newName}</span> in all subsequent weeks too?
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="default" className="h-8" disabled={propagating}
+              onClick={() => void handlePropagateRename(renamePending.oldName, renamePending.newName)}>
+              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, rename all"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
+              onClick={() => setRenamePending(null)}>
+              No, just this week
+            </Button>
+          </div>
+        </div>
+      )}
       {exerciseBlocks.map((block) => {
         const bKey = getExerciseBlockKey(block);
         if (block.type === "superset") {
@@ -772,38 +825,59 @@ export function WorkoutLogClient({
                           Superset
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <CardTitle className="text-base">{dispA}</CardTitle>
-                            <RepRangeDisplay
-                              exerciseId={exA.id}
-                              targetReps={exA.templateSets?.[0]?.targetReps ?? null}
-                              targetRepsMin={exA.templateSets?.[0]?.targetRepsMin ?? null}
-                              editingExId={editingRepRangeExId}
-                              editingMin={editingRepRangeMin}
-                              editingMax={editingRepRangeMax}
-                              onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
-                              onSave={handleSaveRepRange}
-                              onCancel={() => setEditingRepRangeExId(null)}
-                              onChangeMin={setEditingRepRangeMin}
-                              onChangeMax={setEditingRepRangeMax}
-                            />
-                          </div>
-                          <div>
-                            <CardTitle className="text-base">{dispB}</CardTitle>
-                            <RepRangeDisplay
-                              exerciseId={exB.id}
-                              targetReps={exB.templateSets?.[0]?.targetReps ?? null}
-                              targetRepsMin={exB.templateSets?.[0]?.targetRepsMin ?? null}
-                              editingExId={editingRepRangeExId}
-                              editingMin={editingRepRangeMin}
-                              editingMax={editingRepRangeMax}
-                              onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
-                              onSave={handleSaveRepRange}
-                              onCancel={() => setEditingRepRangeExId(null)}
-                              onChangeMin={setEditingRepRangeMin}
-                              onChangeMax={setEditingRepRangeMax}
-                            />
-                          </div>
+                          {[{ ex: exA, disp: dispA }, { ex: exB, disp: dispB }].map(({ ex: ssEx, disp: ssDisp }) => (
+                            <div key={ssEx.id}>
+                              {renamingExId === ssEx.id ? (
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <Input
+                                    className="h-8 text-sm font-semibold flex-1 min-w-0"
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") void handleRenameExercise(ssEx.id, safeExerciseName(ssEx.name), renameValue);
+                                      if (e.key === "Escape") { setRenamingExId(null); setRenameValue(""); }
+                                    }}
+                                    autoFocus
+                                  />
+                                  <Button size="sm" variant="secondary" className="h-8 px-2 shrink-0"
+                                    onPointerDown={(e) => e.preventDefault()}
+                                    onClick={() => void handleRenameExercise(ssEx.id, safeExerciseName(ssEx.name), renameValue)}>
+                                    Save
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0 shrink-0"
+                                    onPointerDown={(e) => e.preventDefault()}
+                                    onClick={() => { setRenamingExId(null); setRenameValue(""); }}>
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <CardTitle className="text-base cursor-default">{ssDisp}</CardTitle>
+                                  <button
+                                    type="button"
+                                    className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground opacity-40 hover:opacity-100 transition-opacity shrink-0"
+                                    aria-label="Rename exercise"
+                                    onClick={(e) => { e.stopPropagation(); setRenamingExId(ssEx.id); setRenameValue(safeExerciseName(ssEx.name)); }}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                              <RepRangeDisplay
+                                exerciseId={ssEx.id}
+                                targetReps={ssEx.templateSets?.[0]?.targetReps ?? null}
+                                targetRepsMin={ssEx.templateSets?.[0]?.targetRepsMin ?? null}
+                                editingExId={editingRepRangeExId}
+                                editingMin={editingRepRangeMin}
+                                editingMax={editingRepRangeMax}
+                                onStartEdit={(id, min, max) => { setEditingRepRangeExId(id); setEditingRepRangeMin(min); setEditingRepRangeMax(max); }}
+                                onSave={handleSaveRepRange}
+                                onCancel={() => setEditingRepRangeExId(null)}
+                                onChangeMin={setEditingRepRangeMin}
+                                onChangeMax={setEditingRepRangeMax}
+                              />
+                            </div>
+                          ))}
                         </div>
                         {isEx && recommendationByEx[exA.id] && (
                           <p className="text-xs text-primary font-medium">{recommendationByEx[exA.id]}</p>
@@ -890,59 +964,30 @@ export function WorkoutLogClient({
                                 </div>
                               </div>
                             )}
-                            <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Replace className="h-3 w-3" />
-                                Replace
-                              </span>
-                              <select
-                                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                                value={getReplaceSelectValue(exItem)}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  if (v === "") setExerciseDisplay(exItem.id, null);
-                                  else if (v === "sub1" && exItem.substitution1)
-                                    setExerciseDisplay(exItem.id, exItem.substitution1);
-                                  else if (v === "sub2" && exItem.substitution2)
-                                    setExerciseDisplay(exItem.id, exItem.substitution2);
-                                  else if (v === "custom") {
-                                    setCustomReplaceExId(exItem.id);
-                                    setCustomReplaceValue(overridesByExercise[exItem.id] ?? "");
-                                  }
-                                }}
-                              >
-                                <option value="">Original: {safeExerciseName(exItem.name)}</option>
-                                {exItem.substitution1 && <option value="sub1">{exItem.substitution1}</option>}
-                                {exItem.substitution2 && <option value="sub2">{exItem.substitution2}</option>}
-                                <option value="custom">Type custom...</option>
-                              </select>
-                              {customReplaceExId === exItem.id && (
-                                <>
-                                  <Input
-                                    className="h-8 w-full sm:w-40 text-sm"
-                                    placeholder="Exercise name"
-                                    value={customReplaceValue}
-                                    onChange={(e) => setCustomReplaceValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") void setExerciseDisplay(exItem.id, customReplaceValue);
-                                    }}
-                                    onBlur={(e) => {
-                                      if (!e.relatedTarget) setCustomReplaceExId(null);
-                                    }}
-                                    autoFocus
-                                  />
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    className="h-8"
-                                    onPointerDown={(e) => e.preventDefault()}
-                                    onClick={() => void setExerciseDisplay(exItem.id, customReplaceValue)}
-                                  >
-                                    Save
-                                  </Button>
-                                </>
-                              )}
-                            </div>
+                            {(exItem.substitution1 || exItem.substitution2) && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <Replace className="h-3 w-3" />
+                                  Today only
+                                </span>
+                                <select
+                                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                                  value={getReplaceSelectValue(exItem)}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (v === "") void setExerciseDisplay(exItem.id, null);
+                                    else if (v === "sub1" && exItem.substitution1)
+                                      void setExerciseDisplay(exItem.id, exItem.substitution1);
+                                    else if (v === "sub2" && exItem.substitution2)
+                                      void setExerciseDisplay(exItem.id, exItem.substitution2);
+                                  }}
+                                >
+                                  <option value="">Original: {safeExerciseName(exItem.name)}</option>
+                                  {exItem.substitution1 && <option value="sub1">{exItem.substitution1}</option>}
+                                  {exItem.substitution2 && <option value="sub2">{exItem.substitution2}</option>}
+                                </select>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -1180,7 +1225,6 @@ export function WorkoutLogClient({
         const previous = previousByExercise[ex.id] ?? [];
         const isExpanded = expandedKey === bKey;
         const displayName = overridesByExercise[ex.id] ?? safeExerciseName(ex.name);
-        const showCustomInput = customReplaceExId === ex.id;
         return (
           <div
             key={bKey}
@@ -1209,7 +1253,42 @@ export function WorkoutLogClient({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                  <CardTitle className="text-base">{displayName}</CardTitle>
+                  {renamingExId === ex.id ? (
+                    <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                      <Input
+                        className="h-8 text-sm font-semibold flex-1 min-w-0"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void handleRenameExercise(ex.id, safeExerciseName(ex.name), renameValue);
+                          if (e.key === "Escape") { setRenamingExId(null); setRenameValue(""); }
+                        }}
+                        autoFocus
+                      />
+                      <Button size="sm" variant="secondary" className="h-8 px-3 shrink-0"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => void handleRenameExercise(ex.id, safeExerciseName(ex.name), renameValue)}>
+                        Save
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 shrink-0"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => { setRenamingExId(null); setRenameValue(""); }}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 group/title" onClick={(e) => e.stopPropagation()}>
+                      <CardTitle className="text-base cursor-default">{displayName}</CardTitle>
+                      <button
+                        type="button"
+                        className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground opacity-40 hover:opacity-100 hover:text-foreground transition-opacity shrink-0"
+                        aria-label="Rename exercise"
+                        onClick={(e) => { e.stopPropagation(); setRenamingExId(ex.id); setRenameValue(safeExerciseName(ex.name)); }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                   <RepRangeDisplay
                     exerciseId={ex.id}
                     targetReps={ex.templateSets?.[0]?.targetReps ?? null}
@@ -1233,66 +1312,29 @@ export function WorkoutLogClient({
                       Last: {previous.slice(0, 3).map((s) => `${s.reps ?? "?"}×${s.weight ?? "?"}${s.rir != null ? ` RIR${s.rir}` : ""}`).join(", ")}
                     </p>
                   )}
-                  {isExpanded && (
+                  {isExpanded && (ex.substitution1 || ex.substitution2) && (
                     <div
                       className="mt-2 flex flex-wrap items-center gap-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
                         <Replace className="h-3 w-3" />
-                        Replace with
+                        Today only
                       </span>
                       <select
                         className="h-8 rounded-md border border-input bg-background px-2 text-xs"
                         value={getReplaceSelectValue(ex)}
                         onChange={(e) => {
                           const v = e.target.value;
-                          if (v === "") setExerciseDisplay(ex.id, null);
-                          else if (v === "sub1" && ex.substitution1) setExerciseDisplay(ex.id, ex.substitution1);
-                          else if (v === "sub2" && ex.substitution2) setExerciseDisplay(ex.id, ex.substitution2);
-                          else if (v === "custom") {
-                            setCustomReplaceExId(ex.id);
-                            setCustomReplaceValue(overridesByExercise[ex.id] ?? "");
-                          }
+                          if (v === "") void setExerciseDisplay(ex.id, null);
+                          else if (v === "sub1" && ex.substitution1) void setExerciseDisplay(ex.id, ex.substitution1);
+                          else if (v === "sub2" && ex.substitution2) void setExerciseDisplay(ex.id, ex.substitution2);
                         }}
                       >
                         <option value="">Original: {safeExerciseName(ex.name)}</option>
-                        {ex.substitution1 && (
-                          <option value="sub1">{ex.substitution1}</option>
-                        )}
-                        {ex.substitution2 && (
-                          <option value="sub2">{ex.substitution2}</option>
-                        )}
-                        <option value="custom">Type custom...</option>
+                        {ex.substitution1 && <option value="sub1">{ex.substitution1}</option>}
+                        {ex.substitution2 && <option value="sub2">{ex.substitution2}</option>}
                       </select>
-                      {showCustomInput && (
-                        <>
-                          <Input
-                            className="h-8 w-full sm:w-40 text-sm"
-                            placeholder="Exercise name"
-                            value={customReplaceValue}
-                            onChange={(e) => setCustomReplaceValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void setExerciseDisplay(ex.id, customReplaceValue);
-                            }}
-                            onBlur={(e) => {
-                              // Don't auto-save on blur — let the Save button handle it to avoid
-                              // the blur-before-click race on mobile (iOS fires blur before onClick)
-                              if (!e.relatedTarget) setCustomReplaceExId(null);
-                            }}
-                            autoFocus
-                          />
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-8"
-                            onPointerDown={(e) => e.preventDefault()}
-                            onClick={() => void setExerciseDisplay(ex.id, customReplaceValue)}
-                          >
-                            Save
-                          </Button>
-                        </>
-                      )}
                     </div>
                   )}
                   {isExpanded && (
