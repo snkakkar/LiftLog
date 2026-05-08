@@ -26,7 +26,8 @@ export default async function RootLayout({
   const isAdmin = !!session?.user?.isAdmin;
 
   const navLinks = [
-    { href: "/", label: "Programs" },
+    { href: "/", label: "Dashboard" },
+    { href: "/programs", label: "Programs" },
     { href: "/history", label: "History" },
     { href: "/import", label: "Import" },
     ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),

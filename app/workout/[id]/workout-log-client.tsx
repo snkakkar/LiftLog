@@ -393,9 +393,15 @@ export function WorkoutLogClient({
   async function logSet(
     exerciseId: string,
     setNumber: number,
-    payload: { reps?: number; weight?: number; rir?: number; isWarmup?: boolean }
+    payload: { reps?: number; weight?: number; rir?: number; isWarmup?: boolean },
+    exerciseName?: string
   ) {
     if (!sessionId) return;
+    // For bodyweight exercises, bake body weight into the stored weight so history is accurate
+    let storedWeight = payload.weight ?? null;
+    if (exerciseName && isBodyweightExercise(exerciseName) && bodyWeightLb != null) {
+      storedWeight = (payload.weight ?? 0) + bodyWeightLb;
+    }
     const res = await fetch("/api/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -404,7 +410,7 @@ export function WorkoutLogClient({
         exerciseId,
         setNumber,
         reps: payload.reps ?? null,
-        weight: payload.weight ?? null,
+        weight: storedWeight,
         rir: payload.rir ?? null,
         isWarmup: payload.isWarmup === true,
       }),
@@ -1079,7 +1085,7 @@ export function WorkoutLogClient({
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exA.name))}
                                     bodyWeightLb={bodyWeightLb}
                                     onLog={(reps, weight, rir, isWarmup) =>
-                                      logSet(exA.id, sn, { reps, weight, rir, isWarmup })
+                                      logSet(exA.id, sn, { reps, weight, rir, isWarmup }, safeExerciseName(exA.name))
                                     }
                                   />
                                 </div>
@@ -1111,7 +1117,7 @@ export function WorkoutLogClient({
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exB.name))}
                                     bodyWeightLb={bodyWeightLb}
                                     onLog={(reps, weight, rir, isWarmup) =>
-                                      logSet(exB.id, sn, { reps, weight, rir, isWarmup })
+                                      logSet(exB.id, sn, { reps, weight, rir, isWarmup }, safeExerciseName(exB.name))
                                     }
                                   />
                                 </div>
@@ -1475,7 +1481,7 @@ export function WorkoutLogClient({
                             initialRir={existing?.rir ?? tmpl.targetRir ?? undefined}
                             isBodyweight={isBodyweightExercise(safeExerciseName(ex.name))}
                             bodyWeightLb={bodyWeightLb}
-                            onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup })}
+                            onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup }, safeExerciseName(ex.name))}
                           />
                         </div>
                         {canDelete && (

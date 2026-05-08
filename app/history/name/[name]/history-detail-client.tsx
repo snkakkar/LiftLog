@@ -79,21 +79,15 @@ function isBodyweightExercise(name: string): boolean {
   );
 }
 
-/** Effective load for volume: bodyweight exercises use BW + offset (positive = add, negative = subtract); others use logged weight or BW when 0. */
+/** Effective load for volume: weight is stored as total (BW already baked in for bodyweight exercises). */
 function getEffectiveWeight(
   loggedWeight: number | null | undefined,
-  setDate: string,
-  bodyLogs: BodyLogEntry[],
-  exerciseName: string
+  _setDate: string,
+  _bodyLogs: BodyLogEntry[],
+  _exerciseName: string
 ): number | null {
-  const bw = getClosestWeightLb(setDate, bodyLogs);
-  if (isBodyweightExercise(exerciseName)) {
-    const offset = loggedWeight ?? 0;
-    const effective = (bw ?? 0) + offset;
-    return effective > 0 ? effective : null;
-  }
-  if (loggedWeight != null && loggedWeight !== 0) return loggedWeight;
-  return bw;
+  if (loggedWeight != null && loggedWeight > 0) return loggedWeight;
+  return null;
 }
 
 /** Movement pattern from exercise name for context-aware advice. */
