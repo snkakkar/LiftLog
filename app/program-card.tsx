@@ -63,7 +63,7 @@ export function ProgramCard({ program }: { program: Program }) {
       const res = await fetch(`/api/programs/${program.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
       setDeleteOpen(false);
-      router.push("/");
+      router.push("/programs");
       router.refresh();
     } catch (e) {
       console.error(e);

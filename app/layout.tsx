@@ -26,7 +26,7 @@ export default async function RootLayout({
   const isAdmin = !!session?.user?.isAdmin;
 
   const navLinks = [
-    { href: "/", label: "Dashboard" },
+    { href: "/home", label: "Home" },
     { href: "/programs", label: "Programs" },
     { href: "/history", label: "History" },
     { href: "/import", label: "Import" },
@@ -41,7 +41,7 @@ export default async function RootLayout({
         <Providers>
         <header className="border-b border-border bg-card sticky top-0 z-10">
           <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-            <Link href="/" className="text-xl font-semibold text-white shrink-0">
+            <Link href="/home" className="text-xl font-semibold text-white shrink-0">
               LiftLog
             </Link>
             <NavHeader links={navLinks} />
