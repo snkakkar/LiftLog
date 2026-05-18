@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
+import { estimateOneRepMax } from "@/lib/strength/oneRepMax";
 
 type TemplateSet = {
   id: string;
@@ -125,6 +126,7 @@ type LoggedSet = {
   reps: number | null;
   weight: number | null;
   rir: number | null;
+  isFormDeload?: boolean | null;
   completedAt: string;
 };
 type PreviousLog = {
@@ -132,6 +134,7 @@ type PreviousLog = {
   reps: number | null;
   weight: number | null;
   rir: number | null;
+  isFormDeload?: boolean | null;
   completedAt: string;
 }[];
 
@@ -162,11 +165,14 @@ function isBodyweightExercise(name: string): boolean {
   );
 }
 
-/** Epley 1RM estimate: weight * (1 + reps/30). Returns null if invalid. */
-function epley1RM(weight: number | null | undefined, reps: number | null | undefined): number | null {
-  if (weight == null || reps == null || weight <= 0 || reps <= 0) return null;
-  const est = weight * (1 + reps / 30);
-  return Math.round(est * 10) / 10;
+/** RIR-adjusted 1RM via shared math (treats RIR as reps left in tank). */
+function est1RM(
+  weight: number | null | undefined,
+  reps: number | null | undefined,
+  rir?: number | null | undefined,
+  isFormDeload?: boolean
+): number | null {
+  return estimateOneRepMax({ weight, reps, rir, isFormDeload });
 }
 
 export function WorkoutLogClient({
@@ -209,6 +215,7 @@ export function WorkoutLogClient({
   const [deletingExId, setDeletingExId] = useState<string | null>(null);
   const [movingExId, setMovingExId] = useState<string | null>(null);
   const [propagatePending, setPropagatePending] = useState<{ exerciseId: string; label: string } | null>(null);
+  const [reorderPending, setReorderPending] = useState<{ orderedExerciseIds: string[] } | null>(null);
   const [propagating, setPropagating] = useState(false);
   const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
   const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
@@ -393,7 +400,7 @@ export function WorkoutLogClient({
   async function logSet(
     exerciseId: string,
     setNumber: number,
-    payload: { reps?: number; weight?: number; rir?: number; isWarmup?: boolean },
+    payload: { reps?: number; weight?: number; rir?: number; isWarmup?: boolean; isFormDeload?: boolean },
     exerciseName?: string
   ) {
     if (!sessionId) return;
@@ -413,6 +420,7 @@ export function WorkoutLogClient({
         weight: storedWeight,
         rir: payload.rir ?? null,
         isWarmup: payload.isWarmup === true,
+        isFormDeload: payload.isFormDeload === true,
       }),
     });
     if (!res.ok) return;
@@ -551,12 +559,31 @@ export function WorkoutLogClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderedExerciseIds: orderedIds }),
       });
-      if (res.ok) router.refresh();
+      if (res.ok) {
+        if (currentWeekNumber != null) {
+          setReorderPending({ orderedExerciseIds: orderedIds });
+        }
+        router.refresh();
+      }
     } catch (err) {
       console.error(err);
     }
     setExDragId(null);
   };
+
+  async function handlePropagateReorder(orderedExerciseIds: string[]) {
+    setPropagating(true);
+    try {
+      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "exerciseOrder", orderedExerciseIds }),
+      });
+    } finally {
+      setPropagating(false);
+      setReorderPending(null);
+    }
+  }
   const handleExDragEnd = () => {
     setExDragId(null);
     setExDropTargetId(null);
@@ -617,11 +644,15 @@ export function WorkoutLogClient({
     setEditingRepRangeExId(null);
     setEditingRepRangeMin("");
     setEditingRepRangeMax("");
-    await fetch(`/api/exercises/${exerciseId}/sets`, {
+    const res = await fetch(`/api/exercises/${exerciseId}/sets`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetReps, targetRepsMin }),
     });
+    if (res.ok && currentWeekNumber != null) {
+      const ex = exercises.find((e) => e.id === exerciseId);
+      if (ex) setPropagatePending({ exerciseId, label: safeExerciseName(ex.name) });
+    }
     router.refresh();
   };
 
@@ -799,6 +830,23 @@ export function WorkoutLogClient({
             </Button>
             <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
               onClick={() => setRenamePending(null)}>
+              No, just this week
+            </Button>
+          </div>
+        </div>
+      )}
+      {reorderPending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm flex-1">
+            Apply this exercise order to all subsequent weeks?
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="default" className="h-8" disabled={propagating}
+              onClick={() => void handlePropagateReorder(reorderPending.orderedExerciseIds)}>
+              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
+              onClick={() => setReorderPending(null)}>
               No, just this week
             </Button>
           </div>
@@ -1082,10 +1130,11 @@ export function WorkoutLogClient({
                                       (prevA[0]?.weight != null ? prevA[0]?.weight : undefined)
                                     }
                                     initialRir={existingA?.rir ?? tmplA.targetRir ?? undefined}
+                                    initialIsFormDeload={existingA?.isFormDeload ?? null}
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exA.name))}
                                     bodyWeightLb={bodyWeightLb}
-                                    onLog={(reps, weight, rir, isWarmup) =>
-                                      logSet(exA.id, sn, { reps, weight, rir, isWarmup }, safeExerciseName(exA.name))
+                                    onLog={(reps, weight, rir, isWarmup, isFormDeload) =>
+                                      logSet(exA.id, sn, { reps, weight, rir, isWarmup, isFormDeload }, safeExerciseName(exA.name))
                                     }
                                   />
                                 </div>
@@ -1114,10 +1163,11 @@ export function WorkoutLogClient({
                                       (prevB[0]?.weight != null ? prevB[0]?.weight : undefined)
                                     }
                                     initialRir={existingB?.rir ?? tmplB.targetRir ?? undefined}
+                                    initialIsFormDeload={existingB?.isFormDeload ?? null}
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exB.name))}
                                     bodyWeightLb={bodyWeightLb}
-                                    onLog={(reps, weight, rir, isWarmup) =>
-                                      logSet(exB.id, sn, { reps, weight, rir, isWarmup }, safeExerciseName(exB.name))
+                                    onLog={(reps, weight, rir, isWarmup, isFormDeload) =>
+                                      logSet(exB.id, sn, { reps, weight, rir, isWarmup, isFormDeload }, safeExerciseName(exB.name))
                                     }
                                   />
                                 </div>
@@ -1423,11 +1473,11 @@ export function WorkoutLogClient({
                     <p className="font-medium text-muted-foreground mb-1">Previous (by week)</p>
                     <div className="flex flex-col gap-1.5">
                       {previous.slice(0, 8).map((s, i) => {
-                        const est1RM = epley1RM(s.weight, s.reps);
+                        const orm = est1RM(s.weight, s.reps, s.rir);
                         return (
                           <span key={i} className="text-muted-foreground text-xs">
                             Set {s.setNumber}: {s.reps ?? "—"}×{s.weight ?? "—"} lb{s.rir != null ? ` RIR${s.rir}` : ""}
-                            {est1RM != null && <span className="ml-1">· est. 1RM: {est1RM} lb</span>}
+                            {orm != null && <span className="ml-1">· est. 1RM: {orm} lb</span>}
                             {s.completedAt && (
                               <span className="ml-1 opacity-80">
                                 · {new Date(s.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
@@ -1479,9 +1529,10 @@ export function WorkoutLogClient({
                             initialReps={existing?.reps ?? tmpl.targetReps ?? undefined}
                             initialWeight={existing?.weight ?? tmpl.targetWeight ?? (lastWeight != null ? lastWeight : undefined)}
                             initialRir={existing?.rir ?? tmpl.targetRir ?? undefined}
+                            initialIsFormDeload={existing?.isFormDeload ?? null}
                             isBodyweight={isBodyweightExercise(safeExerciseName(ex.name))}
                             bodyWeightLb={bodyWeightLb}
-                            onLog={(reps, weight, rir, isWarmup) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup }, safeExerciseName(ex.name))}
+                            onLog={(reps, weight, rir, isWarmup, isFormDeload) => logSet(ex.id, tmpl.setNumber, { reps, weight, rir, isWarmup, isFormDeload }, safeExerciseName(ex.name))}
                           />
                         </div>
                         {canDelete && (
@@ -1716,6 +1767,7 @@ function SetRow({
   initialReps,
   initialWeight,
   initialRir,
+  initialIsFormDeload,
   isBodyweight,
   bodyWeightLb,
   onLog,
@@ -1729,14 +1781,16 @@ function SetRow({
   initialReps: number | null | undefined;
   initialWeight: number | null | undefined;
   initialRir: number | null | undefined;
+  initialIsFormDeload?: boolean | null;
   isBodyweight?: boolean;
   bodyWeightLb?: number;
-  onLog: (reps?: number, weight?: number, rir?: number, isWarmup?: boolean) => void | Promise<void>;
+  onLog: (reps?: number, weight?: number, rir?: number, isWarmup?: boolean, isFormDeload?: boolean) => void | Promise<void>;
 }) {
   const [reps, setReps] = useState(initialReps ?? undefined);
   const [weight, setWeight] = useState(initialWeight ?? undefined);
   const [rir, setRir] = useState(initialRir ?? undefined);
   const [isWarmup, setIsWarmup] = useState(false);
+  const [isFormDeload, setIsFormDeload] = useState(initialIsFormDeload === true);
   const [saving, setSaving] = useState(false);
   const [savedJustNow, setSavedJustNow] = useState(false);
   // True once the user has explicitly entered reps for this row
@@ -1748,14 +1802,15 @@ function SetRow({
     setReps(initialReps ?? undefined);
     setWeight(initialWeight ?? undefined);
     setRir(initialRir ?? undefined);
+    setIsFormDeload(initialIsFormDeload === true);
     setRepsEntered(initialReps != null && initialReps > 0);
-  }, [initialReps, initialWeight, initialRir]);
+  }, [initialReps, initialWeight, initialRir, initialIsFormDeload]);
 
   const handleSave = async () => {
     setSaving(true);
     setSavedJustNow(false);
     try {
-      await Promise.resolve(onLog(reps, weight, rir, isWarmup));
+      await Promise.resolve(onLog(reps, weight, rir, isWarmup, isFormDeload));
       setSavedJustNow(true);
       setTimeout(() => setSavedJustNow(false), 2500);
     } finally {
@@ -1862,9 +1917,9 @@ function SetRow({
           className="h-9 mt-0.5"
         />
       </div>
-      {epley1RM(weight, reps) != null && (
+      {est1RM(weight, reps, rir, isFormDeload) != null && (
         <div className="shrink-0 self-end pb-2">
-          <span className="text-xs text-muted-foreground">est. 1RM: {epley1RM(weight, reps)} lb</span>
+          <span className="text-xs text-muted-foreground">est. 1RM: {est1RM(weight, reps, rir, isFormDeload)} lb</span>
         </div>
       )}
       <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
@@ -1875,6 +1930,18 @@ function SetRow({
           className="rounded border-input"
         />
         <span className="text-xs text-muted-foreground">Warm-up</span>
+      </label>
+      <label
+        className="flex items-center gap-1.5 shrink-0 cursor-pointer"
+        title="Mark this set when you intentionally lowered the weight to clean up form. It won't count against your strength trend or volume."
+      >
+        <input
+          type="checkbox"
+          checked={isFormDeload}
+          onChange={(e) => setIsFormDeload(e.target.checked)}
+          className="rounded border-input"
+        />
+        <span className="text-xs text-muted-foreground">Form set</span>
       </label>
       <Button
         size="sm"

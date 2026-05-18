@@ -29,6 +29,7 @@ export async function GET(
         ? {
             exerciseId,
             isWarmup: { not: true },
+            isFormDeload: { not: true },
             workoutSession: {
               workoutDay: {
                 week: {
@@ -42,6 +43,7 @@ export async function GET(
         : {
             exerciseId,
             isWarmup: { not: true },
+            isFormDeload: { not: true },
             workoutSession: { workoutDay: { week: { program: { userId } } } },
           };
 
@@ -61,6 +63,7 @@ export async function GET(
       weight: s.weight,
       rir: s.rir,
       isWarmup: s.isWarmup,
+      isFormDeload: s.isFormDeload,
     }));
 
     const { suggestion, repRangeText } = getProgressionSuggestion(template, logged);

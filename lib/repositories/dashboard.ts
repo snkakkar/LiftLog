@@ -1,8 +1,5 @@
 import { prisma } from "@/lib/db";
-
-function epley(weight: number, reps: number): number {
-  return reps === 1 ? weight : weight * (1 + reps / 30);
-}
+import { estimateOneRepMax, effectiveVolume } from "@/lib/strength/oneRepMax";
 
 function isoWeekKey(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -58,31 +55,41 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const twentyEightDaysAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
 
-  const sets = await prisma.loggedSet.findMany({
-    where: {
-      completedAt: { gte: twelveWeeksAgo },
-      isWarmup: { not: true },
-      reps: { not: null },
-      weight: { not: null },
-      workoutSession: {
-        is: {
-          isDeload: false,
-          workoutDay: { week: { program: { userId } } },
+  const [sets, activitySessions] = await Promise.all([
+    prisma.loggedSet.findMany({
+      where: {
+        completedAt: { gte: twelveWeeksAgo },
+        isWarmup: { not: true },
+        isFormDeload: { not: true },
+        reps: { not: null },
+        weight: { not: null },
+        workoutSession: {
+          is: {
+            isDeload: false,
+            workoutDay: { week: { program: { userId } } },
+          },
         },
       },
-    },
-    select: {
-      reps: true,
-      weight: true,
-      rir: true,
-      completedAt: true,
-      exercise: { select: { name: true } },
-      workoutSession: { select: { id: true, startedAt: true } },
-    },
-    orderBy: { completedAt: "asc" },
-  });
+      select: {
+        reps: true,
+        weight: true,
+        rir: true,
+        isWarmup: true,
+        isFormDeload: true,
+        completedAt: true,
+        exercise: { select: { name: true } },
+        workoutSession: { select: { id: true, startedAt: true } },
+      },
+      orderBy: { completedAt: "asc" },
+    }),
+    prisma.activitySession.findMany({
+      where: { userId, startedAt: { gte: twelveWeeksAgo } },
+      select: { startedAt: true, rpe: true },
+      orderBy: { startedAt: "asc" },
+    }),
+  ]);
 
-  if (sets.length === 0) {
+  if (sets.length === 0 && activitySessions.length === 0) {
     const weeks = lastNWeeks(12);
     return {
       hasData: false,
@@ -102,10 +109,12 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
   const exSetCount: Record<string, number> = {};
 
   for (const s of sets) {
-    if (s.reps == null || s.weight == null) continue;
+    const vol = effectiveVolume(s);
+    if (vol === 0) continue;
     const w = isoWeekKey(new Date(s.completedAt));
-    weeklyVolumeMap[w] = (weeklyVolumeMap[w] ?? 0) + s.weight * s.reps;
-    const orm = epley(s.weight, s.reps);
+    weeklyVolumeMap[w] = (weeklyVolumeMap[w] ?? 0) + vol;
+    const orm = estimateOneRepMax(s);
+    if (orm == null) continue;
     if (!weeklyExOrm[w]) weeklyExOrm[w] = {};
     const name = s.exercise.name;
     weeklyExOrm[w][name] = Math.max(weeklyExOrm[w][name] ?? 0, orm);
@@ -129,11 +138,17 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
   }));
 
   // Health score
-  // Consistency
+  // Consistency: counts unique days in last 28 days that had any logged training —
+  // either a program workout (LoggedSet) OR a standalone ActivitySession.
   const sessionDays = new Set<string>();
   for (const s of sets) {
     if (new Date(s.completedAt) >= twentyEightDaysAgo) {
       sessionDays.add(new Date(s.workoutSession.startedAt).toISOString().slice(0, 10));
+    }
+  }
+  for (const a of activitySessions) {
+    if (new Date(a.startedAt) >= twentyEightDaysAgo) {
+      sessionDays.add(new Date(a.startedAt).toISOString().slice(0, 10));
     }
   }
   const consistencySessions = sessionDays.size;
@@ -173,11 +188,19 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
     else { strengthScore = 4; strengthLabel = "Declining"; }
   }
 
-  // Intensity
+  // Intensity: combines RIR from program sets with RPE from activity sessions.
+  // RPE 1-10 maps to a pseudo-RIR via (10 - rpe), so a hard travel HIIT (RPE 9 ≈ RIR 1)
+  // pulls the average toward "high intensity" the same as a near-failure lifting set.
   const recentRirs: number[] = [];
   for (const s of sets) {
     if (new Date(s.completedAt) >= fourteenDaysAgo && s.rir != null) {
       recentRirs.push(s.rir);
+    }
+  }
+  for (const a of activitySessions) {
+    if (new Date(a.startedAt) >= fourteenDaysAgo && a.rpe != null) {
+      const pseudoRir = Math.max(0, 10 - a.rpe);
+      recentRirs.push(pseudoRir);
     }
   }
   const avgRir = recentRirs.length ? recentRirs.reduce((a, b) => a + b) / recentRirs.length : null;
@@ -205,13 +228,18 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
   // Recent activity
   const recentSets = sets.filter(s => new Date(s.completedAt) >= fourteenDaysAgo);
   const recentSessionDays = new Set(recentSets.map(s => new Date(s.workoutSession.startedAt).toISOString().slice(0, 10)));
+  for (const a of activitySessions) {
+    if (new Date(a.startedAt) >= fourteenDaysAgo) {
+      recentSessionDays.add(new Date(a.startedAt).toISOString().slice(0, 10));
+    }
+  }
 
   // PRs: exercises where recent max 1RM exceeds historical max
   const historicalOrm: Record<string, number> = {};
   const recentOrm: Record<string, number> = {};
   for (const s of sets) {
-    if (s.reps == null || s.weight == null) continue;
-    const orm = epley(s.weight, s.reps);
+    const orm = estimateOneRepMax(s);
+    if (orm == null) continue;
     const name = s.exercise.name;
     if (new Date(s.completedAt) >= fourteenDaysAgo) {
       recentOrm[name] = Math.max(recentOrm[name] ?? 0, orm);

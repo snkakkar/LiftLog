@@ -14,6 +14,7 @@ export interface LoggedSetRecord {
   weight: number | null;
   rir: number | null;
   isWarmup?: boolean | null;
+  isFormDeload?: boolean | null;
 }
 
 /** Rep range: targetReps is top; bottom is targetReps - 2 (min 1). */
@@ -42,7 +43,9 @@ export function getProgressionSuggestion(
   const targetReps = templateWorking[0]?.targetReps ?? 8;
   const repRangeText = repRangeLabel(targetReps);
 
-  const working = lastLoggedSets.filter((s) => !s.isWarmup);
+  // Form-deload sets are intentional weight drops for technique work, not strength regression.
+  // Filter them out alongside warmups so progression advice reflects real working sets only.
+  const working = lastLoggedSets.filter((s) => !s.isWarmup && !s.isFormDeload);
   if (working.length === 0) return { suggestion: null, repRangeText };
 
   if (templateWorking.length === 0) return { suggestion: null, repRangeText };

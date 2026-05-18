@@ -6,7 +6,7 @@ import { requireUserId } from "@/lib/auth";
 export async function POST(request: NextRequest) {
   const userId = await requireUserId();
   const body = await request.json().catch(() => ({}));
-  const { workoutSessionId, exerciseId, setNumber, reps, weight, rir, isWarmup } = body;
+  const { workoutSessionId, exerciseId, setNumber, reps, weight, rir, isWarmup, isFormDeload } = body;
   if (!workoutSessionId || !exerciseId || setNumber == null) {
     return NextResponse.json(
       { error: "workoutSessionId, exerciseId, setNumber required" },
@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
     weight: weight != null ? Number(weight) : null,
     rir: rir != null ? Number(rir) : null,
     isWarmup: isWarmup === true,
+    isFormDeload: isFormDeload === true,
   };
   const existing = await prisma.loggedSet.findFirst({
     where: { workoutSessionId, exerciseId, setNumber: setNum },

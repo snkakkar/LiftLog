@@ -28,6 +28,7 @@ export default async function RootLayout({
   const navLinks = [
     { href: "/home", label: "Home" },
     { href: "/programs", label: "Programs" },
+    { href: "/log-activity", label: "Log activity" },
     { href: "/history", label: "History" },
     { href: "/import", label: "Import" },
     ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),

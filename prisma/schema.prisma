@@ -16,9 +16,10 @@ model User {
   passwordHash   String
   createdAt      DateTime  @default(now())
 
-  programs       Program[]
-  profile        Profile?
-  bodyMetricLogs BodyMetricLog[]
+  programs           Program[]
+  profile            Profile?
+  bodyMetricLogs     BodyMetricLog[]
+  activitySessions   ActivitySession[]
 }
 
 model Program {
@@ -117,6 +118,10 @@ model LoggedSet {
   weight           Float?
   rir              Int?     // Reps in reserve (1-4 typical)
   isWarmup         Boolean? @default(false)
+  /// True when the user intentionally lowered the weight to clean up form/technique.
+  /// These sets are excluded from 1RM, volume, and progression analytics so they don't
+  /// register as a strength regression — they reflect skill work.
+  isFormDeload     Boolean? @default(false)
   completedAt      DateTime @default(now())
 
   workoutSession WorkoutSession @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
@@ -133,6 +138,29 @@ model Profile {
   updatedAt DateTime @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Standalone training session not tied to a Program — e.g. travel HIIT, walks, conditioning.
+/// Contributes to consistency and intensity score, but not to weight×reps volume or 1RM trend
+/// (since there's no per-set load data).
+model ActivitySession {
+  id          String   @id @default(cuid())
+  userId      String
+  /// Type of activity: "cardio", "strength", "hiit", "walk", "mobility", "other".
+  /// Stored as string for flexibility; UI offers a fixed list.
+  kind        String
+  /// User-facing name, e.g. "Hotel HIIT", "Sunday long walk".
+  name        String
+  startedAt   DateTime @default(now())
+  durationMin Int?
+  distanceMi  Float?
+  /// Rate of perceived exertion 1-10. Maps to RIR-equivalent for intensity score.
+  rpe         Int?
+  note        String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
 }
 
 // Daily log of body metrics (weight, body fat %) for progression/summary. One per user per day.

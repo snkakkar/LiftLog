@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 import { Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { estimateOneRepMax } from "@/lib/strength/oneRepMax";
 import {
   LineChart,
   Line,
@@ -31,6 +32,8 @@ type SetRecord = {
   reps: number | null;
   weight: number | null;
   rir: number | null;
+  isWarmup?: boolean | null;
+  isFormDeload?: boolean | null;
   completedAt: string;
   workoutSession?: {
     workoutDay?: {
@@ -195,6 +198,7 @@ export function HistoryDetailClient({
 
   const setsWithVolume = useMemo(() => {
     return setsFilteredByTimeframe.filter((s) => {
+      if (s.isFormDeload) return false;
       const reps = s.reps ?? 0;
       const effectiveWeight = getEffectiveWeight(s.weight, s.completedAt, bodyLogs, exerciseName);
       return reps > 0 && (effectiveWeight ?? 0) > 0;
@@ -212,11 +216,6 @@ export function HistoryDetailClient({
     return { dates, byDate: acc };
   }, [setsWithVolume]);
 
-  /** Epley 1RM: weight * (1 + reps/30) */
-  function epley1RM(weight: number, reps: number): number {
-    return Math.round(weight * (1 + reps / 30) * 10) / 10;
-  }
-
   const chartData = useMemo(() => {
     return byDate.dates
       .slice()
@@ -227,15 +226,14 @@ export function HistoryDetailClient({
         let topWeight = 0;
         let best1RM = 0;
         for (const s of daySets) {
+          if (s.isFormDeload) continue;
           const effectiveWeight = getEffectiveWeight(s.weight, s.completedAt, bodyLogs, exerciseName);
           const w = effectiveWeight ?? 0;
           const r = s.reps ?? 0;
           volume += r * w;
           if (w > topWeight) topWeight = w;
-          if (w > 0 && r > 0) {
-            const est = epley1RM(w, r);
-            if (est > best1RM) best1RM = est;
-          }
+          const est = estimateOneRepMax({ weight: w, reps: r, rir: s.rir, isFormDeload: s.isFormDeload });
+          if (est != null && est > best1RM) best1RM = est;
         }
         return {
           date,
@@ -532,6 +530,11 @@ export function HistoryDetailClient({
                               {s.reps ?? "—"}×{s.weight ?? "—"} lb
                               {s.rir != null ? ` RIR${s.rir}` : ""}
                             </span>
+                            {s.isFormDeload && (
+                              <span className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded bg-amber-100/40 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-800/40">
+                                form
+                              </span>
+                            )}
                             <span className="text-muted-foreground text-xs">
                               {formatDate(s.completedAt)}
                             </span>

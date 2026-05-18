@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
   const baseWhere = {
     exerciseId: { in: exerciseIds },
     isWarmup: { not: true },
+    isFormDeload: { not: true },
     workoutSession: { workoutDay: { week: { program: { userId } } } },
   } as const;
 
