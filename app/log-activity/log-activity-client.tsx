@@ -15,9 +15,29 @@ type Activity = {
   startedAt: string;
   durationMin: number | null;
   distanceMi: number | null;
+  caloriesBurned: number | null;
   rpe: number | null;
   note: string | null;
 };
+
+/** YYYY-MM-DD in local time, suitable for a date input default. */
+function todayLocalISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** Convert a YYYY-MM-DD date input into an ISO timestamp at local noon, so the date the user picked is preserved across timezones. */
+function dateInputToISO(value: string): string | null {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
 
 const KINDS: { value: string; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { value: "cardio", label: "Cardio", icon: Heart },
@@ -48,8 +68,10 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
   const router = useRouter();
   const [kind, setKind] = useState<string>("cardio");
   const [name, setName] = useState("");
+  const [date, setDate] = useState<string>(todayLocalISO());
   const [durationMin, setDurationMin] = useState("");
   const [distanceMi, setDistanceMi] = useState("");
+  const [caloriesBurned, setCaloriesBurned] = useState("");
   const [rpe, setRpe] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -71,8 +93,10 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
         body: JSON.stringify({
           kind,
           name: name.trim(),
+          startedAt: dateInputToISO(date),
           durationMin: durationMin ? Number(durationMin) : null,
           distanceMi: distanceMi ? Number(distanceMi) : null,
+          caloriesBurned: caloriesBurned ? Number(caloriesBurned) : null,
           rpe: rpe ? Number(rpe) : null,
           note: note.trim() || null,
         }),
@@ -83,8 +107,10 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
         return;
       }
       setName("");
+      setDate(todayLocalISO());
       setDurationMin("");
       setDistanceMi("");
+      setCaloriesBurned("");
       setRpe("");
       setNote("");
       router.refresh();
@@ -135,17 +161,30 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
                 })}
               </div>
             </div>
-            <div>
-              <Label className="text-xs" htmlFor="activity-name">Name</Label>
-              <Input
-                id="activity-name"
-                placeholder='e.g. "Hotel HIIT" or "Sunday long walk"'
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-1"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+              <div>
+                <Label className="text-xs" htmlFor="activity-name">Name</Label>
+                <Input
+                  id="activity-name"
+                  placeholder='e.g. "Hotel HIIT" or "Sunday long walk"'
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="activity-date">Date</Label>
+                <Input
+                  id="activity-date"
+                  type="date"
+                  max={todayLocalISO()}
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
                 <Label className="text-xs" htmlFor="activity-duration">Duration (min)</Label>
                 <Input
@@ -168,6 +207,18 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
                   inputMode="decimal"
                   value={distanceMi}
                   onChange={(e) => setDistanceMi(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs" htmlFor="activity-calories">Calories</Label>
+                <Input
+                  id="activity-calories"
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={caloriesBurned}
+                  onChange={(e) => setCaloriesBurned(e.target.value)}
                   className="mt-1"
                 />
               </div>
@@ -226,6 +277,7 @@ export function LogActivityClient({ recent }: { recent: Activity[] }) {
                         {formatDateTime(a.startedAt)}
                         {a.durationMin != null ? ` · ${a.durationMin} min` : ""}
                         {a.distanceMi != null ? ` · ${a.distanceMi} mi` : ""}
+                        {a.caloriesBurned != null ? ` · ${a.caloriesBurned} cal` : ""}
                         {a.rpe != null ? ` · RPE ${a.rpe}` : ""}
                       </p>
                       {a.note && <p className="text-xs text-muted-foreground mt-0.5">{a.note}</p>}

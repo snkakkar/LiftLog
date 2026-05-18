@@ -53,6 +53,9 @@ function parseInput(body: Record<string, unknown>): PropagateInput | null {
       case "supersetClear":
         if (typeof body.exerciseId !== "string") return null;
         return { kind: "supersetClear", exerciseId: body.exerciseId };
+      case "addExercise":
+        if (typeof body.exerciseId !== "string") return null;
+        return { kind: "addExercise", exerciseId: body.exerciseId };
       default:
         return null;
     }

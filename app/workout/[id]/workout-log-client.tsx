@@ -216,6 +216,8 @@ export function WorkoutLogClient({
   const [movingExId, setMovingExId] = useState<string | null>(null);
   const [propagatePending, setPropagatePending] = useState<{ exerciseId: string; label: string } | null>(null);
   const [reorderPending, setReorderPending] = useState<{ orderedExerciseIds: string[] } | null>(null);
+  const [addExercisePending, setAddExercisePending] = useState<{ exerciseId: string; label: string } | null>(null);
+  const [supersetPending, setSupersetPending] = useState<{ supersetGroupId: string; labelA: string; labelB: string } | null>(null);
   const [propagating, setPropagating] = useState(false);
   const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
   const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
@@ -513,7 +515,11 @@ export function WorkoutLogClient({
         body: JSON.stringify({ name }),
       });
       if (!res.ok) throw new Error("Failed to add exercise");
+      const created = (await res.json().catch(() => null)) as { id?: string; name?: string } | null;
       setAddExerciseName("");
+      if (currentWeekNumber != null && created?.id) {
+        setAddExercisePending({ exerciseId: created.id, label: name });
+      }
       router.refresh();
     } catch (e) {
       console.error(e);
@@ -521,6 +527,20 @@ export function WorkoutLogClient({
       setAddExerciseLoading(false);
     }
   };
+
+  async function handlePropagateAddExercise(exerciseId: string) {
+    setPropagating(true);
+    try {
+      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "addExercise", exerciseId }),
+      });
+    } finally {
+      setPropagating(false);
+      setAddExercisePending(null);
+    }
+  }
 
   const handleExDragStart = (e: React.DragEvent, blockKey: string) => {
     setExDragId(blockKey);
@@ -693,11 +713,36 @@ export function WorkoutLogClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ exerciseIdA: exerciseId, exerciseIdB: partnerId }),
       });
-      if (res.ok) router.refresh();
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as { supersetGroupId?: string | null } | null;
+      if (currentWeekNumber != null && data?.supersetGroupId) {
+        const exA = exercises.find((e) => e.id === exerciseId);
+        const exB = exercises.find((e) => e.id === partnerId);
+        setSupersetPending({
+          supersetGroupId: data.supersetGroupId,
+          labelA: exA ? safeExerciseName(exA.name) : "exercise A",
+          labelB: exB ? safeExerciseName(exB.name) : "exercise B",
+        });
+      }
+      router.refresh();
     } catch (e) {
       console.error(e);
     }
   };
+
+  async function handlePropagateSuperset(supersetGroupId: string) {
+    setPropagating(true);
+    try {
+      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "supersetPair", supersetGroupId }),
+      });
+    } finally {
+      setPropagating(false);
+      setSupersetPending(null);
+    }
+  }
 
   const handleRemoveSuperset = async (exerciseId: string) => {
     try {
@@ -847,6 +892,40 @@ export function WorkoutLogClient({
             </Button>
             <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
               onClick={() => setReorderPending(null)}>
+              No, just this week
+            </Button>
+          </div>
+        </div>
+      )}
+      {addExercisePending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm flex-1">
+            Add <span className="font-medium break-words">{addExercisePending.label}</span> to this same day in all subsequent weeks too?
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="default" className="h-8" disabled={propagating}
+              onClick={() => void handlePropagateAddExercise(addExercisePending.exerciseId)}>
+              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, add to all"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
+              onClick={() => setAddExercisePending(null)}>
+              No, just this week
+            </Button>
+          </div>
+        </div>
+      )}
+      {supersetPending && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm flex-1">
+            Apply this superset (<span className="font-medium break-words">{supersetPending.labelA}</span> + <span className="font-medium break-words">{supersetPending.labelB}</span>) to all subsequent weeks too?
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <Button size="sm" variant="default" className="h-8" disabled={propagating}
+              onClick={() => void handlePropagateSuperset(supersetPending.supersetGroupId)}>
+              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
+              onClick={() => setSupersetPending(null)}>
               No, just this week
             </Button>
           </div>

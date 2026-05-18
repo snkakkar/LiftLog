@@ -144,7 +144,9 @@ export async function POST(
     orderBy: { orderIndex: "asc" },
     include: { templateSets: { orderBy: { setNumber: "asc" } } },
   });
-  return NextResponse.json({ ok: true, exercises });
+  const pairedExercise = exercises.find((e) => e.id === a);
+  const supersetGroupId = pairedExercise?.supersetGroupId ?? null;
+  return NextResponse.json({ ok: true, exercises, supersetGroupId });
 }
 
 /**

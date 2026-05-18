@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
 
   const durationMin = body.durationMin != null ? Math.max(0, Math.floor(Number(body.durationMin))) : null;
   const distanceMi = body.distanceMi != null ? Math.max(0, Number(body.distanceMi)) : null;
+  const caloriesBurned =
+    body.caloriesBurned != null ? Math.max(0, Math.floor(Number(body.caloriesBurned))) : null;
   const rpeRaw = body.rpe != null ? Math.floor(Number(body.rpe)) : null;
   const rpe = rpeRaw != null ? Math.max(1, Math.min(10, rpeRaw)) : null;
   const note = typeof body.note === "string" ? body.note : null;
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
     startedAt,
     durationMin: Number.isFinite(durationMin as number) ? (durationMin as number) : null,
     distanceMi: Number.isFinite(distanceMi as number) ? (distanceMi as number) : null,
+    caloriesBurned: Number.isFinite(caloriesBurned as number) ? (caloriesBurned as number) : null,
     rpe,
     note,
   });

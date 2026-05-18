@@ -154,6 +154,7 @@ model ActivitySession {
   startedAt   DateTime @default(now())
   durationMin Int?
   distanceMi  Float?
+  caloriesBurned Int?
   /// Rate of perceived exertion 1-10. Maps to RIR-equivalent for intensity score.
   rpe         Int?
   note        String?

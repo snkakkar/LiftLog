@@ -15,6 +15,7 @@ export interface CreateActivityInput {
   startedAt?: Date | null;
   durationMin?: number | null;
   distanceMi?: number | null;
+  caloriesBurned?: number | null;
   rpe?: number | null;
   note?: string | null;
 }
@@ -28,6 +29,7 @@ export async function createActivity(userId: string, input: CreateActivityInput)
       startedAt: input.startedAt ?? new Date(),
       durationMin: input.durationMin ?? null,
       distanceMi: input.distanceMi ?? null,
+      caloriesBurned: input.caloriesBurned ?? null,
       rpe: input.rpe ?? null,
       note: input.note?.trim() || null,
     },

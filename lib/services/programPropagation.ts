@@ -26,7 +26,8 @@ export type PropagateInput =
   | { kind: "rename"; oldName: string; newName: string }
   | { kind: "exerciseOrder"; orderedExerciseIds: string[] }
   | { kind: "supersetPair"; supersetGroupId: string }
-  | { kind: "supersetClear"; exerciseId: string };
+  | { kind: "supersetClear"; exerciseId: string }
+  | { kind: "addExercise"; exerciseId: string };
 
 export type PropagateResult =
   | { ok: true; updatedWeeks: number }
@@ -99,6 +100,8 @@ export async function propagate(
       return propagateOrder(sourceDay, subsequentWeeks, input.orderedExerciseIds);
     case "templateSets":
       return propagateTemplateSets(sourceDay, subsequentWeeks, input.exerciseId);
+    case "addExercise":
+      return propagateAddExercise(sourceDay, subsequentWeeks, input.exerciseId);
   }
 }
 
@@ -245,6 +248,75 @@ async function propagateOrder(
         prisma.exercise.update({ where: { id: ex.id }, data: { orderIndex: i } })
       )
     );
+    updatedWeeks++;
+  }
+  return { ok: true, updatedWeeks };
+}
+
+/**
+ * Add a copy of `exerciseId` from the source day to every subsequent week's matching dayNumber.
+ *
+ * Semantics:
+ *   - Skips target days that already have an exercise with the same name (idempotent;
+ *     re-running won't create duplicates).
+ *   - Skips target days that already have logged sets (don't mutate completed history).
+ *   - Copies name, substitutions, and template sets. Does NOT carry over supersetGroupId —
+ *     each week owns its own pairings.
+ *   - Appends at the end of the target day (orderIndex = max + 1). The user can use the
+ *     "exerciseOrder" propagate flow afterward if they want a specific position.
+ */
+async function propagateAddExercise(
+  sourceDay: SourceDay,
+  weeks: Awaited<ReturnType<typeof loadTargetDays>>,
+  exerciseId: string
+): Promise<PropagateResult> {
+  const srcEx = sourceDay.exercises.find((e) => e.id === exerciseId);
+  if (!srcEx) return { ok: false, status: 404, error: "Exercise not found on source day" };
+
+  let updatedWeeks = 0;
+  for (const week of weeks) {
+    const targetDay = week.days[0];
+    if (!targetDay) continue;
+    if (dayHasLoggedSets(targetDay)) continue;
+    if (findByName(targetDay.exercises, srcEx.name)) continue;
+
+    const nextOrderIndex = targetDay.exercises.length > 0
+      ? Math.max(...targetDay.exercises.map((e) => e.orderIndex)) + 1
+      : 0;
+
+    const created = await prisma.exercise.create({
+      data: {
+        workoutDayId: targetDay.id,
+        name: srcEx.name,
+        orderIndex: nextOrderIndex,
+        substitution1: srcEx.substitution1,
+        substitution2: srcEx.substitution2,
+      },
+    });
+
+    if (srcEx.templateSets.length > 0) {
+      await prisma.exerciseSet.createMany({
+        data: srcEx.templateSets.map((s) => ({
+          exerciseId: created.id,
+          setNumber: s.setNumber,
+          targetReps: s.targetReps,
+          targetRepsMin: s.targetRepsMin,
+          targetWeight: s.targetWeight,
+          targetRir: s.targetRir,
+        })),
+      });
+    } else {
+      // Mirror /api/workout-day/[id]/exercises POST behavior — every exercise has at least one set row
+      await prisma.exerciseSet.create({
+        data: {
+          exerciseId: created.id,
+          setNumber: 1,
+          targetReps: null,
+          targetWeight: null,
+          targetRir: null,
+        },
+      });
+    }
     updatedWeeks++;
   }
   return { ok: true, updatedWeeks };

@@ -15,6 +15,7 @@ export default async function LogActivityPage() {
     startedAt: string;
     durationMin: number | null;
     distanceMi: number | null;
+    caloriesBurned: number | null;
     rpe: number | null;
     note: string | null;
   }[];
