@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ChevronUp,
   Replace,
-  Minus,
   Plus,
   GripVertical,
   Check,
@@ -25,6 +24,19 @@ import {
 } from "lucide-react";
 import { SwipeToDeleteRow } from "@/components/swipe-to-delete";
 import { estimateOneRepMax } from "@/lib/strength/oneRepMax";
+import { PropagateBanner } from "./propagate-banner";
+import { SetRow } from "./set-row";
+import { RepRangeDisplay } from "./rep-range-display";
+import {
+  safeExerciseName,
+  isBodyweightExercise,
+} from "@/lib/exercises/format";
+import {
+  buildExerciseBlocks,
+  getExerciseBlockKey,
+  maxDisplayedSetCount,
+  templateForSetNumber,
+} from "@/lib/exercises/blocks";
 
 type TemplateSet = {
   id: string;
@@ -43,67 +55,6 @@ type Exercise = {
   substitution2?: string | null;
   supersetGroupId?: string | null;
 };
-
-type ExerciseBlock =
-  | { type: "single"; exercise: Exercise }
-  | { type: "superset"; first: Exercise; second: Exercise; groupId: string };
-
-function buildExerciseBlocks(exercises: Exercise[]): ExerciseBlock[] {
-  const sorted = [...exercises].sort((a, b) => a.orderIndex - b.orderIndex);
-  const used = new Set<string>();
-  const blocks: ExerciseBlock[] = [];
-  for (const ex of sorted) {
-    if (used.has(ex.id)) continue;
-    const gid = ex.supersetGroupId?.trim();
-    if (gid) {
-      const partner = sorted.find((p) => p.id !== ex.id && p.supersetGroupId === gid);
-      if (partner) {
-        used.add(ex.id);
-        used.add(partner.id);
-        const [first, second] =
-          ex.orderIndex <= partner.orderIndex ? [ex, partner] : [partner, ex];
-        blocks.push({ type: "superset", first, second, groupId: gid });
-        continue;
-      }
-    }
-    blocks.push({ type: "single", exercise: ex });
-  }
-  return blocks;
-}
-
-function getExerciseBlockKey(block: ExerciseBlock): string {
-  return block.type === "single" ? block.exercise.id : `superset:${block.groupId}`;
-}
-
-function maxDisplayedSetCount(
-  a: Exercise,
-  b: Exercise,
-  loggedA: LoggedSet[],
-  loggedB: LoggedSet[]
-): number {
-  const tmplMax = Math.max(
-    Array.isArray(a.templateSets) ? a.templateSets.length : 0,
-    Array.isArray(b.templateSets) ? b.templateSets.length : 0,
-    1
-  );
-  const logA = loggedA.length ? Math.max(...loggedA.map((s) => s.setNumber)) : 0;
-  const logB = loggedB.length ? Math.max(...loggedB.map((s) => s.setNumber)) : 0;
-  return Math.max(tmplMax, logA, logB, 1);
-}
-
-function templateForSetNumber(ex: Exercise, setNumber: number): TemplateSet {
-  const list = Array.isArray(ex.templateSets) ? ex.templateSets : [];
-  const found = list.find((s) => s.setNumber === setNumber);
-  if (found) return found;
-  return {
-    id: "",
-    setNumber,
-    targetReps: null,
-    targetRepsMin: null,
-    targetWeight: null,
-    targetRir: null,
-  };
-}
 
 /** Used to switch superset set layout: labeled stacks on small screens vs side‑by‑side with set numbers on lg+. */
 function useMinWidthLg() {
@@ -137,33 +88,6 @@ type PreviousLog = {
   isFormDeload?: boolean | null;
   completedAt: string;
 }[];
-
-function safeExerciseName(name: unknown): string {
-  if (typeof name === "string") return name;
-  const s = String(name ?? "");
-  return s.replace(/^\[object \w+\]$/, "") || "Exercise";
-}
-
-function repRangeLabel(targetReps: number | null, targetRepsMin?: number | null): string {
-  if (targetReps == null || targetReps < 1) return "";
-  if (targetRepsMin != null && targetRepsMin >= 1 && targetRepsMin < targetReps) {
-    return `${targetRepsMin}–${targetReps} reps`;
-  }
-  return `${targetReps} reps`;
-}
-
-function isBodyweightExercise(name: string): boolean {
-  const n = name.toLowerCase().replace(/[-_\s]+/g, "");
-  return (
-    n.includes("dip") ||
-    n.includes("pullup") ||
-    n.includes("chinup") ||
-    n.includes("pushup") ||
-    n.includes("muscleup") ||
-    n.includes("ringrow") ||
-    n.includes("invertedrow")
-  );
-}
 
 /** RIR-adjusted 1RM via shared math (treats RIR as reps left in tank). */
 function est1RM(
@@ -218,6 +142,7 @@ export function WorkoutLogClient({
   const [reorderPending, setReorderPending] = useState<{ orderedExerciseIds: string[] } | null>(null);
   const [addExercisePending, setAddExercisePending] = useState<{ exerciseId: string; label: string } | null>(null);
   const [supersetPending, setSupersetPending] = useState<{ supersetGroupId: string; labelA: string; labelB: string } | null>(null);
+  const [movePending, setMovePending] = useState<{ exerciseName: string; toDayNumber: number; label: string; toDayLabel: string } | null>(null);
   const [propagating, setPropagating] = useState(false);
   const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
   const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
@@ -385,17 +310,17 @@ export function WorkoutLogClient({
     }
   }
 
-  async function handlePropagateRename(oldName: string, newName: string) {
+  async function runPropagate(body: Record<string, unknown>, clearPending: () => void) {
     setPropagating(true);
     try {
       await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ oldName, renameTo: newName }),
+        body: JSON.stringify(body),
       });
     } finally {
       setPropagating(false);
-      setRenamePending(null);
+      clearPending();
     }
   }
 
@@ -528,20 +453,6 @@ export function WorkoutLogClient({
     }
   };
 
-  async function handlePropagateAddExercise(exerciseId: string) {
-    setPropagating(true);
-    try {
-      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "addExercise", exerciseId }),
-      });
-    } finally {
-      setPropagating(false);
-      setAddExercisePending(null);
-    }
-  }
-
   const handleExDragStart = (e: React.DragEvent, blockKey: string) => {
     setExDragId(blockKey);
     e.dataTransfer.effectAllowed = "move";
@@ -580,10 +491,10 @@ export function WorkoutLogClient({
         body: JSON.stringify({ orderedExerciseIds: orderedIds }),
       });
       if (res.ok) {
+        router.refresh();
         if (currentWeekNumber != null) {
           setReorderPending({ orderedExerciseIds: orderedIds });
         }
-        router.refresh();
       }
     } catch (err) {
       console.error(err);
@@ -591,19 +502,6 @@ export function WorkoutLogClient({
     setExDragId(null);
   };
 
-  async function handlePropagateReorder(orderedExerciseIds: string[]) {
-    setPropagating(true);
-    try {
-      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "exerciseOrder", orderedExerciseIds }),
-      });
-    } finally {
-      setPropagating(false);
-      setReorderPending(null);
-    }
-  }
   const handleExDragEnd = () => {
     setExDragId(null);
     setExDropTargetId(null);
@@ -678,6 +576,8 @@ export function WorkoutLogClient({
 
   const handleMoveExercise = async (exerciseId: string, targetDayId: string) => {
     if (targetDayId === workoutDayId) return;
+    const ex = exercises.find((e) => e.id === exerciseId);
+    const targetDay = programDays?.find((d) => d.id === targetDayId);
     setMovingExId(exerciseId);
     try {
       const res = await fetch(`/api/exercises/${exerciseId}`, {
@@ -685,23 +585,21 @@ export function WorkoutLogClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workoutDayId: targetDayId }),
       });
-      if (res.ok) router.refresh();
+      if (res.ok) {
+        router.refresh();
+        if (currentWeekNumber != null && ex && targetDay && targetDay.weekNumber === currentWeekNumber) {
+          const exerciseName = safeExerciseName(ex.name);
+          const toDayLabel = `Day ${targetDay.dayNumber}${targetDay.name ? ` — ${targetDay.name}` : ""}`;
+          setMovePending({
+            exerciseName,
+            toDayNumber: targetDay.dayNumber,
+            label: exerciseName,
+            toDayLabel,
+          });
+        }
+      }
     } finally {
       setMovingExId(null);
-    }
-  };
-
-  const handlePropagate = async (exerciseId: string) => {
-    setPropagating(true);
-    try {
-      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ exerciseId }),
-      });
-    } finally {
-      setPropagating(false);
-      setPropagatePending(null);
     }
   };
 
@@ -729,20 +627,6 @@ export function WorkoutLogClient({
       console.error(e);
     }
   };
-
-  async function handlePropagateSuperset(supersetGroupId: string) {
-    setPropagating(true);
-    try {
-      await fetch(`/api/workout-day/${workoutDayId}/propagate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "supersetPair", supersetGroupId }),
-      });
-    } finally {
-      setPropagating(false);
-      setSupersetPending(null);
-    }
-  }
 
   const handleRemoveSuperset = async (exerciseId: string) => {
     try {
@@ -837,99 +721,78 @@ export function WorkoutLogClient({
   return (
     <div className="space-y-4">
       {propagatePending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-sm flex-1">
-            Apply this change to <span className="font-medium break-words">{propagatePending.label}</span> in all subsequent weeks too?
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <Button
-              size="sm"
-              variant="default"
-              className="h-8"
-              disabled={propagating}
-              onClick={() => void handlePropagate(propagatePending.exerciseId)}
-            >
-              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8"
-              disabled={propagating}
-              onClick={() => setPropagatePending(null)}
-            >
-              No, just this week
-            </Button>
-          </div>
-        </div>
+        <PropagateBanner
+          message={
+            <>
+              Apply this change to <span className="font-medium break-words">{propagatePending.label}</span> in all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, apply to all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ exerciseId: propagatePending.exerciseId }, () => setPropagatePending(null))}
+          onDismiss={() => setPropagatePending(null)}
+        />
       )}
       {renamePending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-sm flex-1">
-            Rename <span className="font-medium break-words">{renamePending.oldName}</span> → <span className="font-medium break-words">{renamePending.newName}</span> in all subsequent weeks too?
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <Button size="sm" variant="default" className="h-8" disabled={propagating}
-              onClick={() => void handlePropagateRename(renamePending.oldName, renamePending.newName)}>
-              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, rename all"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
-              onClick={() => setRenamePending(null)}>
-              No, just this week
-            </Button>
-          </div>
-        </div>
+        <PropagateBanner
+          message={
+            <>
+              Rename <span className="font-medium break-words">{renamePending.oldName}</span> → <span className="font-medium break-words">{renamePending.newName}</span> in all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, rename all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ oldName: renamePending.oldName, renameTo: renamePending.newName }, () => setRenamePending(null))}
+          onDismiss={() => setRenamePending(null)}
+        />
       )}
       {reorderPending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-sm flex-1">
-            Apply this exercise order to all subsequent weeks?
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <Button size="sm" variant="default" className="h-8" disabled={propagating}
-              onClick={() => void handlePropagateReorder(reorderPending.orderedExerciseIds)}>
-              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
-              onClick={() => setReorderPending(null)}>
-              No, just this week
-            </Button>
-          </div>
-        </div>
+        <PropagateBanner
+          message="Apply this exercise order to all subsequent weeks?"
+          confirmLabel="Yes, apply to all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ kind: "exerciseOrder", orderedExerciseIds: reorderPending.orderedExerciseIds }, () => setReorderPending(null))}
+          onDismiss={() => setReorderPending(null)}
+        />
       )}
       {addExercisePending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-sm flex-1">
-            Add <span className="font-medium break-words">{addExercisePending.label}</span> to this same day in all subsequent weeks too?
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <Button size="sm" variant="default" className="h-8" disabled={propagating}
-              onClick={() => void handlePropagateAddExercise(addExercisePending.exerciseId)}>
-              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, add to all"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
-              onClick={() => setAddExercisePending(null)}>
-              No, just this week
-            </Button>
-          </div>
-        </div>
+        <PropagateBanner
+          message={
+            <>
+              Add <span className="font-medium break-words">{addExercisePending.label}</span> to this same day in all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, add to all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ kind: "addExercise", exerciseId: addExercisePending.exerciseId }, () => setAddExercisePending(null))}
+          onDismiss={() => setAddExercisePending(null)}
+        />
       )}
       {supersetPending && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-          <p className="text-sm flex-1">
-            Apply this superset (<span className="font-medium break-words">{supersetPending.labelA}</span> + <span className="font-medium break-words">{supersetPending.labelB}</span>) to all subsequent weeks too?
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <Button size="sm" variant="default" className="h-8" disabled={propagating}
-              onClick={() => void handlePropagateSuperset(supersetPending.supersetGroupId)}>
-              {propagating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Yes, apply to all"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-8" disabled={propagating}
-              onClick={() => setSupersetPending(null)}>
-              No, just this week
-            </Button>
-          </div>
-        </div>
+        <PropagateBanner
+          message={
+            <>
+              Apply this superset (<span className="font-medium break-words">{supersetPending.labelA}</span> + <span className="font-medium break-words">{supersetPending.labelB}</span>) to all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, apply to all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ kind: "supersetPair", supersetGroupId: supersetPending.supersetGroupId }, () => setSupersetPending(null))}
+          onDismiss={() => setSupersetPending(null)}
+        />
+      )}
+      {movePending && (
+        <PropagateBanner
+          message={
+            <>
+              Move <span className="font-medium break-words">{movePending.label}</span> to <span className="font-medium break-words">{movePending.toDayLabel}</span> in all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, move in all"
+          busy={propagating}
+          onConfirm={() => void runPropagate({ kind: "moveToDay", exerciseName: movePending.exerciseName, toDayNumber: movePending.toDayNumber }, () => setMovePending(null))}
+          onDismiss={() => setMovePending(null)}
+        />
       )}
       {exerciseBlocks.map((block) => {
         const bKey = getExerciseBlockKey(block);
@@ -1729,317 +1592,3 @@ export function WorkoutLogClient({
   );
 }
 
-function RepRangeDisplay({
-  exerciseId,
-  targetReps,
-  targetRepsMin,
-  editingExId,
-  editingMin,
-  editingMax,
-  onStartEdit,
-  onSave,
-  onCancel,
-  onChangeMin,
-  onChangeMax,
-}: {
-  exerciseId: string;
-  targetReps: number | null;
-  targetRepsMin: number | null;
-  editingExId: string | null;
-  editingMin: string;
-  editingMax: string;
-  onStartEdit: (id: string, min: string, max: string) => void;
-  onSave: (id: string, min: string, max: string) => Promise<void>;
-  onCancel: () => void;
-  onChangeMin: (v: string) => void;
-  onChangeMax: (v: string) => void;
-}) {
-  const isEditing = editingExId === exerciseId;
-  if (isEditing) {
-    return (
-      <div className="flex flex-wrap items-center gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
-        <span className="text-xs text-muted-foreground shrink-0">Rep range:</span>
-        <Input
-          type="number"
-          min={1}
-          inputMode="numeric"
-          className="h-8 w-14 text-sm px-2"
-          placeholder="min"
-          value={editingMin}
-          onChange={(e) => onChangeMin(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void onSave(exerciseId, editingMin, editingMax);
-            if (e.key === "Escape") onCancel();
-          }}
-          autoFocus
-        />
-        <span className="text-xs text-muted-foreground">–</span>
-        <Input
-          type="number"
-          min={1}
-          inputMode="numeric"
-          className="h-8 w-14 text-sm px-2"
-          placeholder="max"
-          value={editingMax}
-          onChange={(e) => onChangeMax(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void onSave(exerciseId, editingMin, editingMax);
-            if (e.key === "Escape") onCancel();
-          }}
-          onBlur={(e) => {
-            if (!e.relatedTarget) void onSave(exerciseId, editingMin, editingMax);
-          }}
-        />
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-8 px-3 text-xs"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={() => void onSave(exerciseId, editingMin, editingMax)}
-        >
-          Save
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 px-2 text-xs"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={onCancel}
-        >
-          Cancel
-        </Button>
-      </div>
-    );
-  }
-  const label = repRangeLabel(targetReps, targetRepsMin);
-  return (
-    <button
-      type="button"
-      className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground group"
-      onClick={(e) => {
-        e.stopPropagation();
-        onStartEdit(
-          exerciseId,
-          targetRepsMin != null ? String(targetRepsMin) : "",
-          targetReps != null ? String(targetReps) : ""
-        );
-      }}
-    >
-      {label ? (
-        <>
-          <span>Rep range: {label}</span>
-          <span className="opacity-0 group-hover:opacity-60 text-[10px]">(edit)</span>
-        </>
-      ) : (
-        <span className="opacity-50 group-hover:opacity-100">+ set rep target</span>
-      )}
-    </button>
-  );
-}
-
-function SetRow({
-  setNumber,
-  hideSetNumber,
-  targetReps,
-  targetWeight,
-  targetRir,
-  initialReps,
-  initialWeight,
-  initialRir,
-  initialIsFormDeload,
-  isBodyweight,
-  bodyWeightLb,
-  onLog,
-}: {
-  setNumber: number;
-  /** When true, set index is only exposed to screen readers (e.g. superset mobile stack with a Set N header). */
-  hideSetNumber?: boolean;
-  targetReps: number | null;
-  targetWeight: number | null;
-  targetRir: number | null;
-  initialReps: number | null | undefined;
-  initialWeight: number | null | undefined;
-  initialRir: number | null | undefined;
-  initialIsFormDeload?: boolean | null;
-  isBodyweight?: boolean;
-  bodyWeightLb?: number;
-  onLog: (reps?: number, weight?: number, rir?: number, isWarmup?: boolean, isFormDeload?: boolean) => void | Promise<void>;
-}) {
-  const [reps, setReps] = useState(initialReps ?? undefined);
-  const [weight, setWeight] = useState(initialWeight ?? undefined);
-  const [rir, setRir] = useState(initialRir ?? undefined);
-  const [isWarmup, setIsWarmup] = useState(false);
-  const [isFormDeload, setIsFormDeload] = useState(initialIsFormDeload === true);
-  const [saving, setSaving] = useState(false);
-  const [savedJustNow, setSavedJustNow] = useState(false);
-  // True once the user has explicitly entered reps for this row
-  const [repsEntered, setRepsEntered] = useState(
-    initialReps != null && initialReps > 0
-  );
-
-  useEffect(() => {
-    setReps(initialReps ?? undefined);
-    setWeight(initialWeight ?? undefined);
-    setRir(initialRir ?? undefined);
-    setIsFormDeload(initialIsFormDeload === true);
-    setRepsEntered(initialReps != null && initialReps > 0);
-  }, [initialReps, initialWeight, initialRir, initialIsFormDeload]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSavedJustNow(false);
-    try {
-      await Promise.resolve(onLog(reps, weight, rir, isWarmup, isFormDeload));
-      setSavedJustNow(true);
-      setTimeout(() => setSavedJustNow(false), 2500);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inc = (v: number | undefined, step: number, min = 0) =>
-    v != null ? Math.max(min, v + step) : (min + step);
-  const dec = (v: number | undefined, step: number, min = 0) =>
-    v != null ? Math.max(min, v - step) : min;
-
-  return (
-    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-3 min-w-0">
-      {hideSetNumber ? (
-        <span className="sr-only">Set {setNumber}</span>
-      ) : (
-        <span className="w-8 shrink-0 text-sm font-medium text-muted-foreground">{setNumber}</span>
-      )}
-      <div className="flex-1 min-w-[80px]">
-        <Label className="text-xs">Reps</Label>
-        <div className="flex items-center gap-0.5 mt-0.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0 hidden md:flex"
-            onClick={() => setReps((r) => dec(r, 1))}
-          >
-            <Minus className="h-4 w-4" />
-          </Button>
-          <Input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            placeholder={targetReps != null ? String(targetReps) : "—"}
-            value={reps != null ? String(reps) : ""}
-            onChange={(e) => {
-              const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
-              setReps(val);
-              if (val != null && val > 0) setRepsEntered(true);
-            }}
-            className="h-9 flex-1 min-w-0"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0 hidden md:flex"
-            onClick={() => { setReps((r) => inc(r, 1)); setRepsEntered(true); }}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="flex-1 min-w-[80px]">
-        <Label className="text-xs">
-          {isBodyweight
-            ? bodyWeightLb != null
-              ? `Added weight (BW: ${bodyWeightLb} lb)`
-              : "Added weight (lb)"
-            : "Weight (lb)"}
-        </Label>
-        <div className="flex items-center gap-0.5 mt-0.5">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0 hidden md:flex"
-            onClick={() => setWeight((w) => dec(w ?? 0, 2.5, 0))}
-          >
-            <Minus className="h-4 w-4" />
-          </Button>
-          <Input
-            type="number"
-            min={0}
-            step={0.5}
-            inputMode="decimal"
-            placeholder={targetWeight != null ? String(targetWeight) : "—"}
-            value={weight != null ? String(weight) : ""}
-            onChange={(e) => setWeight(e.target.value ? parseFloat(e.target.value) : undefined)}
-            className="h-9 flex-1 min-w-0"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-9 w-9 shrink-0 hidden md:flex"
-            onClick={() => setWeight((w) => inc(w ?? 0, 2.5))}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="w-16 shrink-0">
-        <Label className="text-xs">RIR</Label>
-        <Input
-          type="number"
-          min={0}
-          max={10}
-          placeholder={targetRir != null ? String(targetRir) : "—"}
-          value={rir ?? ""}
-          onChange={(e) => setRir(e.target.value ? parseInt(e.target.value, 10) : undefined)}
-          className="h-9 mt-0.5"
-        />
-      </div>
-      {est1RM(weight, reps, rir, isFormDeload) != null && (
-        <div className="shrink-0 self-end pb-2">
-          <span className="text-xs text-muted-foreground">est. 1RM: {est1RM(weight, reps, rir, isFormDeload)} lb</span>
-        </div>
-      )}
-      <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={isWarmup}
-          onChange={(e) => setIsWarmup(e.target.checked)}
-          className="rounded border-input"
-        />
-        <span className="text-xs text-muted-foreground">Warm-up</span>
-      </label>
-      <label
-        className="flex items-center gap-1.5 shrink-0 cursor-pointer"
-        title="Mark this set when you intentionally lowered the weight to clean up form. It won't count against your strength trend or volume."
-      >
-        <input
-          type="checkbox"
-          checked={isFormDeload}
-          onChange={(e) => setIsFormDeload(e.target.checked)}
-          className="rounded border-input"
-        />
-        <span className="text-xs text-muted-foreground">Form set</span>
-      </label>
-      <Button
-        size="sm"
-        onClick={() => void handleSave()}
-        disabled={saving || !repsEntered}
-        variant={savedJustNow ? "secondary" : "default"}
-        className={savedJustNow ? "text-green-700 border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 dark:text-green-400" : ""}
-      >
-        {saving ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : savedJustNow ? (
-          <>
-            <Check className="h-4 w-4 mr-1 shrink-0" />
-            Saved
-          </>
-        ) : (
-          "Log"
-        )}
-      </Button>
-    </div>
-  );
-}

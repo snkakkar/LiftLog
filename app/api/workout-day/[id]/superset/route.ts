@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
-
-function getTodayRange() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-  return { start, end };
-}
+import { requireUserId, userScope } from "@/lib/auth";
+import { getTodayRange } from "@/lib/time";
 
 async function findTodaysSessionForDay(workoutDayId: string, userId: string) {
   const { start, end } = getTodayRange();
   const sessions = await prisma.workoutSession.findMany({
     where: {
       workoutDayId,
-      workoutDay: { week: { program: { userId } } },
+      ...userScope.workoutSession(userId),
       startedAt: { gte: start, lt: end },
     },
     orderBy: { startedAt: "desc" },
@@ -47,7 +41,7 @@ export async function POST(
   const userId = await requireUserId();
   const { id: workoutDayId } = await params;
   const day = await prisma.workoutDay.findFirst({
-    where: { id: workoutDayId, week: { program: { userId } } },
+    where: { id: workoutDayId, ...userScope.workoutDay(userId) },
     include: { exercises: true },
   });
   if (!day) return NextResponse.json({ error: "Workout day not found" }, { status: 404 });
@@ -166,7 +160,7 @@ export async function DELETE(
   }
 
   const ex = await prisma.exercise.findFirst({
-    where: { id: exerciseId, workoutDayId, workoutDay: { week: { program: { userId } } } },
+    where: { id: exerciseId, workoutDayId, ...userScope.exercise(userId) },
   });
   if (!ex) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
 

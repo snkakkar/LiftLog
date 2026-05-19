@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** Log or update a set. If a set already exists for this session + exercise + setNumber, it is updated (overwrite). */
 export async function POST(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     );
   }
   const session = await prisma.workoutSession.findFirst({
-    where: { id: workoutSessionId, workoutDay: { week: { program: { userId } } } },
+    where: { id: workoutSessionId, ...userScope.workoutSession(userId) },
   });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });

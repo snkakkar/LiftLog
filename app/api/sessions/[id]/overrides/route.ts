@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** GET - list display overrides for this session */
 export async function GET(
@@ -10,10 +10,7 @@ export async function GET(
   const userId = await requireUserId();
   const { id: sessionId } = await params;
   const overrides = await prisma.exerciseOverride.findMany({
-    where: {
-      workoutSessionId: sessionId,
-      workoutSession: { workoutDay: { week: { program: { userId } } } },
-    },
+    where: { workoutSessionId: sessionId, ...userScope.exerciseOverride(userId) },
   });
   return NextResponse.json(
     overrides.map((o) => ({ exerciseId: o.exerciseId, displayName: o.displayName, note: o.note }))
@@ -28,7 +25,7 @@ export async function POST(
   const userId = await requireUserId();
   const { id: sessionId } = await params;
   const session = await prisma.workoutSession.findFirst({
-    where: { id: sessionId, workoutDay: { week: { program: { userId } } } },
+    where: { id: sessionId, ...userScope.workoutSession(userId) },
   });
   if (!session) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -71,11 +68,7 @@ export async function DELETE(
     return NextResponse.json({ error: "exerciseId required" }, { status: 400 });
   }
   await prisma.exerciseOverride.deleteMany({
-    where: {
-      workoutSessionId: sessionId,
-      exerciseId,
-      workoutSession: { workoutDay: { week: { program: { userId } } } },
-    },
+    where: { workoutSessionId: sessionId, exerciseId, ...userScope.exerciseOverride(userId) },
   });
   return NextResponse.json({ ok: true });
 }

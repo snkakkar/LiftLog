@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /**
  * POST - Add a new template set to an exercise (next set number).
@@ -13,7 +13,7 @@ export async function POST(
   const userId = await requireUserId();
   const { id: exerciseId } = await params;
   const exercise = await prisma.exercise.findFirst({
-    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    where: { id: exerciseId, ...userScope.exercise(userId) },
     include: { templateSets: { orderBy: { setNumber: "asc" } } },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
@@ -51,7 +51,7 @@ export async function PUT(
   const userId = await requireUserId();
   const { id: exerciseId } = await params;
   const exercise = await prisma.exercise.findFirst({
-    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    where: { id: exerciseId, ...userScope.exercise(userId) },
     include: { templateSets: true },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
@@ -78,7 +78,7 @@ export async function PATCH(
   const userId = await requireUserId();
   const { id: exerciseId } = await params;
   const exercise = await prisma.exercise.findFirst({
-    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    where: { id: exerciseId, ...userScope.exercise(userId) },
     include: { templateSets: true },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
@@ -121,7 +121,7 @@ export async function DELETE(
   const userId = await requireUserId();
   const { id: exerciseId } = await params;
   const exercise = await prisma.exercise.findFirst({
-    where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+    where: { id: exerciseId, ...userScope.exercise(userId) },
     include: { templateSets: true },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });

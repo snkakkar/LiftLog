@@ -66,6 +66,35 @@ export const authOptions: NextAuthOptions = {
   pages: { signIn: "/login" },
 };
 
+/**
+ * Predicate factories for scoping Prisma queries to a user's data.
+ *
+ * Every program/exercise/session/etc. is reachable via the chain
+ * Program.userId → Week → WorkoutDay → Exercise → ExerciseSet/LoggedSet.
+ * These return the correct nested `where` fragment for each entity so call
+ * sites can spread them into queries instead of inlining the chain.
+ *
+ * Example:
+ *   const ex = await prisma.exercise.findFirst({
+ *     where: { id, ...userScope.exercise(userId) },
+ *   });
+ */
+export const userScope = {
+  exercise: (userId: string) => ({
+    workoutDay: { week: { program: { userId } } },
+  }),
+  workoutDay: (userId: string) => ({ week: { program: { userId } } }),
+  workoutSession: (userId: string) => ({
+    workoutDay: { week: { program: { userId } } },
+  }),
+  loggedSet: (userId: string) => ({
+    workoutSession: { workoutDay: { week: { program: { userId } } } },
+  }),
+  exerciseOverride: (userId: string) => ({
+    workoutSession: { workoutDay: { week: { program: { userId } } } },
+  }),
+} as const;
+
 /** Get current user id from session, or null if not signed in. Use in API routes and server components. */
 export async function getCurrentUserId(): Promise<string | null> {
   const session = await getServerSession(authOptions);

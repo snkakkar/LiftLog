@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** GET ?exerciseId=... & ?exerciseName=... & optional ?programId=... & ?currentWeekNumber=...
  *  Returns last logged sets for this exercise. If programId and currentWeekNumber are provided,
@@ -23,17 +23,14 @@ export async function GET(request: NextRequest) {
   let exerciseIds: string[] = [];
   if (exerciseName) {
     const exercises = await prisma.exercise.findMany({
-      where: {
-        name: exerciseName,
-        workoutDay: { week: { program: { userId } } },
-      },
+      where: { name: exerciseName, ...userScope.exercise(userId) },
       select: { id: true },
     });
     exerciseIds = exercises.map((e) => e.id);
   }
   if (exerciseIds.length === 0 && exerciseId) {
     const ex = await prisma.exercise.findFirst({
-      where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+      where: { id: exerciseId, ...userScope.exercise(userId) },
     });
     if (ex) exerciseIds = [ex.id];
   }
@@ -45,7 +42,7 @@ export async function GET(request: NextRequest) {
     exerciseId: { in: exerciseIds },
     isWarmup: { not: true },
     isFormDeload: { not: true },
-    workoutSession: { workoutDay: { week: { program: { userId } } } },
+    ...userScope.loggedSet(userId),
   } as const;
 
   // Prefer same program, previous weeks only (e.g. Week 8 when viewing Week 9).

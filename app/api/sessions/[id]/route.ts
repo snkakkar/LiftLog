@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 export async function PATCH(
   request: NextRequest,
@@ -14,7 +14,7 @@ export async function PATCH(
   if (completedAt != null) data.completedAt = new Date(completedAt);
   if (typeof isDeload === "boolean") data.isDeload = isDeload;
   const session = await prisma.workoutSession.update({
-    where: { id, workoutDay: { week: { program: { userId } } } },
+    where: { id, ...userScope.workoutSession(userId) },
     data,
   });
   return NextResponse.json(session);

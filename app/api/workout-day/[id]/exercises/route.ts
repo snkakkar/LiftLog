@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /**
  * POST - Add a new exercise to a workout day.
@@ -14,7 +14,7 @@ export async function POST(
   const userId = await requireUserId();
   const { id: workoutDayId } = await params;
   const day = await prisma.workoutDay.findFirst({
-    where: { id: workoutDayId, week: { program: { userId } } },
+    where: { id: workoutDayId, ...userScope.workoutDay(userId) },
     include: { exercises: { orderBy: { orderIndex: "asc" } } },
   });
   if (!day) return NextResponse.json({ error: "Workout day not found" }, { status: 404 });
@@ -69,7 +69,7 @@ export async function PATCH(
   const userId = await requireUserId();
   const { id: workoutDayId } = await params;
   const day = await prisma.workoutDay.findFirst({
-    where: { id: workoutDayId, week: { program: { userId } } },
+    where: { id: workoutDayId, ...userScope.workoutDay(userId) },
     include: { exercises: true },
   });
   if (!day) return NextResponse.json({ error: "Workout day not found" }, { status: 404 });

@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
-
-/** Start and end of "today" in local time (for filtering sessions by calendar day). */
-function getTodayRange() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-  return { start, end };
-}
+import { requireUserId, userScope } from "@/lib/auth";
+import { getTodayRange } from "@/lib/time";
 
 /** GET ?workoutDayId=... - returns a session for this workout day only if it started today (so logs go to today's date). Otherwise null so client creates a new session. */
 export async function GET(request: NextRequest) {
@@ -24,7 +17,7 @@ export async function GET(request: NextRequest) {
   const sessions = await prisma.workoutSession.findMany({
     where: {
       workoutDayId,
-      workoutDay: { week: { program: { userId } } },
+      ...userScope.workoutSession(userId),
       startedAt: { gte: startOfToday, lt: endOfToday },
     },
     orderBy: { startedAt: "desc" },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** GET - returns all logged sets for this session */
 export async function GET(
@@ -10,10 +10,7 @@ export async function GET(
   const userId = await requireUserId();
   const { id } = await params;
   const sets = await prisma.loggedSet.findMany({
-    where: {
-      workoutSessionId: id,
-      workoutSession: { workoutDay: { week: { program: { userId } } } },
-    },
+    where: { workoutSessionId: id, ...userScope.loggedSet(userId) },
     orderBy: [{ exerciseId: "asc" }, { setNumber: "asc" }],
   });
   return NextResponse.json(sets);

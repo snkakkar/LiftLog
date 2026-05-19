@@ -27,7 +27,8 @@ export type PropagateInput =
   | { kind: "exerciseOrder"; orderedExerciseIds: string[] }
   | { kind: "supersetPair"; supersetGroupId: string }
   | { kind: "supersetClear"; exerciseId: string }
-  | { kind: "addExercise"; exerciseId: string };
+  | { kind: "addExercise"; exerciseId: string }
+  | { kind: "moveToDay"; exerciseName: string; toDayNumber: number };
 
 export type PropagateResult =
   | { ok: true; updatedWeeks: number }
@@ -102,6 +103,8 @@ export async function propagate(
       return propagateTemplateSets(sourceDay, subsequentWeeks, input.exerciseId);
     case "addExercise":
       return propagateAddExercise(sourceDay, subsequentWeeks, input.exerciseId);
+    case "moveToDay":
+      return propagateMoveToDay(sourceDay, userId, input.exerciseName, input.toDayNumber);
   }
 }
 
@@ -360,6 +363,88 @@ async function propagateTemplateSets(
         });
       }
     }
+    updatedWeeks++;
+  }
+  return { ok: true, updatedWeeks };
+}
+
+/**
+ * Move the exercise (matched by case-insensitive name) from the source day's dayNumber
+ * to a different dayNumber in every subsequent week.
+ *
+ * Semantics:
+ *   - The source-week move has already happened (the API endpoint that runs first updates
+ *     `exercise.workoutDayId`). This function only walks future weeks.
+ *   - For each subsequent week, requires both the "from" day (= source's dayNumber) and the
+ *     "to" day (= toDayNumber) to exist. Skips the week otherwise.
+ *   - Skips a week if either the from-day or the to-day already has logged sets — moving
+ *     would restructure a completed workout.
+ *   - On success, the moved exercise is appended to the to-day (orderIndex = max + 1) and
+ *     its supersetGroupId is cleared. If it had a partner, the partner's group is also
+ *     cleared so the orphaned partner becomes a standalone exercise.
+ *   - The user can re-run the "exerciseOrder" propagation afterward to position it.
+ */
+async function propagateMoveToDay(
+  sourceDay: SourceDay,
+  userId: string,
+  exerciseName: string,
+  toDayNumber: number
+): Promise<PropagateResult> {
+  if (toDayNumber === sourceDay.dayNumber) {
+    return { ok: false, status: 400, error: "toDayNumber must differ from source dayNumber" };
+  }
+
+  const weeks = await prisma.week.findMany({
+    where: {
+      programId: sourceDay.week.programId,
+      weekNumber: { gt: sourceDay.week.weekNumber },
+      program: { userId },
+    },
+    orderBy: { weekNumber: "asc" },
+    include: {
+      days: {
+        where: { dayNumber: { in: [sourceDay.dayNumber, toDayNumber] } },
+        include: {
+          exercises: { orderBy: { orderIndex: "asc" } },
+          sessions: { include: { loggedSets: { take: 1 } } },
+        },
+      },
+    },
+  });
+
+  let updatedWeeks = 0;
+  for (const week of weeks) {
+    const fromDay = week.days.find((d) => d.dayNumber === sourceDay.dayNumber);
+    const toDay = week.days.find((d) => d.dayNumber === toDayNumber);
+    if (!fromDay || !toDay) continue;
+    if (dayHasLoggedSets(fromDay) || dayHasLoggedSets(toDay)) continue;
+
+    const tgtEx = findByName(fromDay.exercises, exerciseName);
+    if (!tgtEx) continue;
+
+    if (tgtEx.supersetGroupId) {
+      await prisma.exercise.updateMany({
+        where: {
+          workoutDayId: fromDay.id,
+          supersetGroupId: tgtEx.supersetGroupId,
+          id: { not: tgtEx.id },
+        },
+        data: { supersetGroupId: null },
+      });
+    }
+
+    const nextOrderIndex = toDay.exercises.length > 0
+      ? Math.max(...toDay.exercises.map((e) => e.orderIndex)) + 1
+      : 0;
+
+    await prisma.exercise.update({
+      where: { id: tgtEx.id },
+      data: {
+        workoutDayId: toDay.id,
+        orderIndex: nextOrderIndex,
+        supersetGroupId: null,
+      },
+    });
     updatedWeeks++;
   }
   return { ok: true, updatedWeeks };

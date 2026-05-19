@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** DELETE - Remove exercise from the workout day (template sets and logged sets for this exercise are removed). */
 export async function DELETE(
@@ -10,7 +10,7 @@ export async function DELETE(
   const userId = await requireUserId();
   const { id } = await params;
   const exercise = await prisma.exercise.findFirst({
-    where: { id, workoutDay: { week: { program: { userId } } } },
+    where: { id, ...userScope.exercise(userId) },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
   if (exercise.supersetGroupId) {
@@ -50,7 +50,7 @@ export async function PATCH(
       return NextResponse.json({ error: "workoutDayId must be a non-empty string" }, { status: 400 });
     }
     const targetDay = await prisma.workoutDay.findFirst({
-      where: { id: targetDayId, week: { program: { userId } } },
+      where: { id: targetDayId, ...userScope.workoutDay(userId) },
     });
     if (!targetDay) return NextResponse.json({ error: "Target day not found" }, { status: 404 });
     data.workoutDayId = targetDayId;
@@ -59,7 +59,7 @@ export async function PATCH(
     return NextResponse.json({ error: "name, substitution1, substitution2, or workoutDayId required" }, { status: 400 });
   }
   const exercise = await prisma.exercise.findFirst({
-    where: { id, workoutDay: { week: { program: { userId } } } },
+    where: { id, ...userScope.exercise(userId) },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
 

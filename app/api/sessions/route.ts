@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
     const day = await prisma.workoutDay.findFirst({
-      where: { id: workoutDayId, week: { program: { userId } } },
+      where: { id: workoutDayId, ...userScope.workoutDay(userId) },
     });
     if (!day) {
       return NextResponse.json({ error: "Workout day not found" }, { status: 404 });

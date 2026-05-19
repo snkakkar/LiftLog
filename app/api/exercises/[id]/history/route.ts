@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** GET - logged sets for this exercise, newest first */
 export async function GET(
@@ -14,7 +14,7 @@ export async function GET(
     where: {
       exerciseId,
       isWarmup: { not: true },
-      workoutSession: { workoutDay: { week: { program: { userId } } } },
+      ...userScope.loggedSet(userId),
     },
     orderBy: { completedAt: "desc" },
     take: 500,

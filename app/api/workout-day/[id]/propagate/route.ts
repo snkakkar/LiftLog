@@ -56,6 +56,9 @@ function parseInput(body: Record<string, unknown>): PropagateInput | null {
       case "addExercise":
         if (typeof body.exerciseId !== "string") return null;
         return { kind: "addExercise", exerciseId: body.exerciseId };
+      case "moveToDay":
+        if (typeof body.exerciseName !== "string" || typeof body.toDayNumber !== "number") return null;
+        return { kind: "moveToDay", exerciseName: body.exerciseName, toDayNumber: body.toDayNumber };
       default:
         return null;
     }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 /** DELETE - Remove a logged set from history */
 export async function DELETE(
@@ -11,10 +11,7 @@ export async function DELETE(
   const { id } = await params;
   try {
     await prisma.loggedSet.delete({
-      where: {
-        id,
-        workoutSession: { workoutDay: { week: { program: { userId } } } },
-      },
+      where: { id, ...userScope.loggedSet(userId) },
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

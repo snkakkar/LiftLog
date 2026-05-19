@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getProgressionSuggestion } from "@/lib/progression/recommend";
-import { requireUserId } from "@/lib/auth";
+import { requireUserId, userScope } from "@/lib/auth";
 
 export async function GET(
   request: NextRequest,
@@ -15,7 +15,7 @@ export async function GET(
     const currentWeekNumber = currentWeekNum ? parseInt(currentWeekNum, 10) : null;
 
     const exercise = await prisma.exercise.findFirst({
-      where: { id: exerciseId, workoutDay: { week: { program: { userId } } } },
+      where: { id: exerciseId, ...userScope.exercise(userId) },
       include: {
         templateSets: { orderBy: { setNumber: "asc" } },
       },
@@ -44,7 +44,7 @@ export async function GET(
             exerciseId,
             isWarmup: { not: true },
             isFormDeload: { not: true },
-            workoutSession: { workoutDay: { week: { program: { userId } } } },
+            ...userScope.loggedSet(userId),
           };
 
     const lastSets = await prisma.loggedSet.findMany({
