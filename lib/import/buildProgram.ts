@@ -15,6 +15,7 @@ import {
   toRir,
 } from "./normalizeValues";
 import { isDayLabel } from "./classifyRows";
+import { cleanSubstitution } from "@/lib/exercises/substitutions";
 
 /** Detect column offset: 0 = data in A, 1 = data shifted right (empty A). Uses load/reps sanity so Excel date serials are not treated as data. */
 function detectOffset(row: (string | number)[]): 0 | 1 {
@@ -60,8 +61,8 @@ function getSetDataFromRow(row: (string | number)[], workingSetCount: number, of
 function getSubstitutions(row: (string | number)[], offset: 0 | 1): { substitution1?: string; substitution2?: string } {
   const s1Col = 15 + offset;
   const s2Col = 16 + offset;
-  const s1 = getText(row[s1Col]).trim();
-  const s2 = getText(row[s2Col]).trim();
+  const s1 = cleanSubstitution(getText(row[s1Col]));
+  const s2 = cleanSubstitution(getText(row[s2Col]));
   return {
     ...(s1 ? { substitution1: s1 } : {}),
     ...(s2 ? { substitution2: s2 } : {}),
