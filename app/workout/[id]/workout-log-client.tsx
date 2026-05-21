@@ -143,6 +143,7 @@ export function WorkoutLogClient({
   const [addExercisePending, setAddExercisePending] = useState<{ exerciseId: string; label: string } | null>(null);
   const [supersetPending, setSupersetPending] = useState<{ supersetGroupId: string; labelA: string; labelB: string } | null>(null);
   const [movePending, setMovePending] = useState<{ exerciseName: string; toDayNumber: number; label: string; toDayLabel: string } | null>(null);
+  const [substitutePending, setSubstitutePending] = useState<{ exerciseId: string; oldName: string; newName: string } | null>(null);
   const [propagating, setPropagating] = useState(false);
   const [editingRepRangeExId, setEditingRepRangeExId] = useState<string | null>(null);
   const [editingRepRangeMin, setEditingRepRangeMin] = useState("");
@@ -266,7 +267,7 @@ export function WorkoutLogClient({
     if (ex) fetchRec(ex);
   }, [expandedKey, exercises, recommendationByEx, programId, currentWeekNumber]);
 
-  async function setExerciseDisplay(exId: string, displayName: string | null) {
+  async function setExerciseDisplay(exId: string, displayName: string | null, originalName?: string) {
     if (!sessionId) return;
     if (displayName === null || displayName.trim() === "") {
       await fetch(`/api/sessions/${sessionId}/overrides?exerciseId=${encodeURIComponent(exId)}`, {
@@ -285,6 +286,12 @@ export function WorkoutLogClient({
       });
       if (!res.ok) return;
       setOverridesByExercise((prev) => ({ ...prev, [exId]: displayName.trim() }));
+      // After overriding for today, offer to apply to all subsequent weeks. Mirrors the
+      // rename/reorder/move flows: structural propagation uses kind:"rename" against
+      // future weeks (logs reference exerciseId so historical data isn't impacted).
+      if (originalName && currentWeekNumber != null) {
+        setSubstitutePending({ exerciseId: exId, oldName: originalName, newName: displayName.trim() });
+      }
     }
     setLastSavedAt(new Date());
   }
@@ -794,6 +801,22 @@ export function WorkoutLogClient({
           onDismiss={() => setMovePending(null)}
         />
       )}
+      {substitutePending && (
+        <PropagateBanner
+          message={
+            <>
+              Use <span className="font-medium break-words">{substitutePending.newName}</span> instead of <span className="font-medium break-words">{substitutePending.oldName}</span> in all subsequent weeks too?
+            </>
+          }
+          confirmLabel="Yes, swap in all"
+          busy={propagating}
+          onConfirm={() => void runPropagate(
+            { kind: "rename", oldName: substitutePending.oldName, newName: substitutePending.newName },
+            () => setSubstitutePending(null),
+          )}
+          onDismiss={() => setSubstitutePending(null)}
+        />
+      )}
       {exerciseBlocks.map((block) => {
         const bKey = getExerciseBlockKey(block);
         if (block.type === "superset") {
@@ -979,7 +1002,7 @@ export function WorkoutLogClient({
                               <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                                   <Replace className="h-3 w-3" />
-                                  Today only
+                                  Substitute
                                 </span>
                                 <select
                                   className="h-8 rounded-md border border-input bg-background px-2 text-xs"
@@ -988,9 +1011,9 @@ export function WorkoutLogClient({
                                     const v = e.target.value;
                                     if (v === "") void setExerciseDisplay(exItem.id, null);
                                     else if (v === "sub1" && exItem.substitution1)
-                                      void setExerciseDisplay(exItem.id, exItem.substitution1);
+                                      void setExerciseDisplay(exItem.id, exItem.substitution1, exItem.name);
                                     else if (v === "sub2" && exItem.substitution2)
-                                      void setExerciseDisplay(exItem.id, exItem.substitution2);
+                                      void setExerciseDisplay(exItem.id, exItem.substitution2, exItem.name);
                                   }}
                                 >
                                   <option value="">Original: {safeExerciseName(exItem.name)}</option>
@@ -1336,7 +1359,7 @@ export function WorkoutLogClient({
                     >
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
                         <Replace className="h-3 w-3" />
-                        Today only
+                        Substitute
                       </span>
                       <select
                         className="h-8 rounded-md border border-input bg-background px-2 text-xs"
@@ -1344,8 +1367,8 @@ export function WorkoutLogClient({
                         onChange={(e) => {
                           const v = e.target.value;
                           if (v === "") void setExerciseDisplay(ex.id, null);
-                          else if (v === "sub1" && ex.substitution1) void setExerciseDisplay(ex.id, ex.substitution1);
-                          else if (v === "sub2" && ex.substitution2) void setExerciseDisplay(ex.id, ex.substitution2);
+                          else if (v === "sub1" && ex.substitution1) void setExerciseDisplay(ex.id, ex.substitution1, ex.name);
+                          else if (v === "sub2" && ex.substitution2) void setExerciseDisplay(ex.id, ex.substitution2, ex.name);
                         }}
                       >
                         <option value="">Original: {safeExerciseName(ex.name)}</option>
