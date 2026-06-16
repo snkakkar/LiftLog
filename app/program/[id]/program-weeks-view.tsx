@@ -39,7 +39,18 @@ export function ProgramWeeksView({
   const [dateSaving, setDateSaving] = useState(false);
   const currentWeekRef = useRef<HTMLDivElement | null>(null);
 
-  const currentWeekId = useMemo(() => pickCurrentWeekId(weeks), [weeks]);
+  const currentWeekId = useMemo(
+    () =>
+      pickCurrentWeekId(
+        weeks.map((w) => ({
+          id: w.id,
+          weekNumber: w.weekNumber,
+          startDate: w.startDate,
+          hasLoggedActivity: w.hasLoggedActivity,
+        }))
+      ),
+    [weeks]
+  );
 
   useEffect(() => {
     if (!currentWeekRef.current) return;

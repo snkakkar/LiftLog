@@ -1,6 +1,8 @@
 export type ProgramWeekLite = {
   id: string;
+  weekNumber: number;
   startDate: string | null;
+  hasLoggedActivity?: boolean;
 };
 
 export function pickCurrentWeekId(weeks: ProgramWeekLite[], now: Date = new Date()): string | null {
@@ -8,7 +10,15 @@ export function pickCurrentWeekId(weeks: ProgramWeekLite[], now: Date = new Date
   const sorted = [...weeks]
     .filter((w) => !!w.startDate)
     .sort((a, b) => new Date(a.startDate as string).getTime() - new Date(b.startDate as string).getTime());
-  if (sorted.length === 0) return weeks[0]?.id ?? null;
+  if (sorted.length === 0) {
+    const orderedByWeek = [...weeks].sort((a, b) => a.weekNumber - b.weekNumber);
+    const loggedWeeks = orderedByWeek.filter((w) => w.hasLoggedActivity);
+    if (loggedWeeks.length === 0) return orderedByWeek[0]?.id ?? null;
+
+    const lastLoggedWeekNumber = Math.max(...loggedWeeks.map((w) => w.weekNumber));
+    const nextWeek = orderedByWeek.find((w) => w.weekNumber === lastLoggedWeekNumber + 1);
+    return nextWeek?.id ?? orderedByWeek[orderedByWeek.length - 1]?.id ?? null;
+  }
 
   const today = new Date(now);
   today.setHours(12, 0, 0, 0);
