@@ -3,6 +3,7 @@ import { ProgramActions } from "./program-actions";
 import { ProgramWeeksView } from "./program-weeks-view";
 import { getProgramById } from "@/lib/repositories/programs";
 import { getCurrentUserId } from "@/lib/auth";
+import { dayHasLoggedActivity } from "@/lib/program/logged-activity";
 
 export default async function ProgramPage({
   params,
@@ -19,10 +20,12 @@ export default async function ProgramPage({
     id: w.id,
     weekNumber: w.weekNumber,
     startDate: w.startDate ? w.startDate.toISOString().slice(0, 10) : null,
+    hasLoggedActivity: (w.days ?? []).some(dayHasLoggedActivity),
     days: (w.days ?? []).map((d) => ({
       id: d.id,
       dayNumber: d.dayNumber,
       name: d.name,
+      hasLoggedActivity: dayHasLoggedActivity(d),
     })),
   }));
 

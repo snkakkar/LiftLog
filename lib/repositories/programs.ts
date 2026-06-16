@@ -7,7 +7,27 @@ import { prisma } from "@/lib/db";
 const programInclude = {
   weeks: {
     orderBy: { weekNumber: "asc" as const },
-    include: { days: { orderBy: { dayNumber: "asc" as const } } },
+    include: {
+      days: {
+        orderBy: { dayNumber: "asc" as const },
+        include: {
+          sessions: {
+            where: { isDeload: false },
+            select: {
+              id: true,
+              loggedSets: {
+                take: 1,
+                where: {
+                  isWarmup: { not: true },
+                  isFormDeload: { not: true },
+                },
+                select: { id: true },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 } as const;
 

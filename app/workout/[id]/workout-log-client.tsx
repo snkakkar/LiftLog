@@ -87,6 +87,9 @@ type PreviousLog = {
   rir: number | null;
   isFormDeload?: boolean | null;
   completedAt: string;
+  weekNumber?: number | null;
+  dayNumber?: number | null;
+  programName?: string | null;
 }[];
 
 function getBestPreviousSet(previous: PreviousLog, setNumber: number) {
@@ -232,7 +235,22 @@ export function WorkoutLogClient({
       if (currentWeekNumber != null) params.set("currentWeekNumber", String(currentWeekNumber));
       fetch(`/api/previous-log?${params}`)
         .then((r) => r.json())
-        .then((sets: { setNumber: number; reps: number | null; weight: number | null; rir: number | null; completedAt: string }[]) => {
+        .then((sets: {
+          setNumber: number;
+          reps: number | null;
+          weight: number | null;
+          rir: number | null;
+          completedAt: string;
+          workoutSession?: {
+            workoutDay?: {
+              dayNumber?: number | null;
+              week?: {
+                weekNumber?: number | null;
+                program?: { name?: string | null } | null;
+              } | null;
+            } | null;
+          } | null;
+        }[]) => {
           setPreviousByExercise((prev) => ({
             ...prev,
             [id]: sets.map((s) => ({
@@ -241,6 +259,9 @@ export function WorkoutLogClient({
               weight: s.weight,
               rir: s.rir,
               completedAt: s.completedAt,
+              weekNumber: s.workoutSession?.workoutDay?.week?.weekNumber ?? null,
+              dayNumber: s.workoutSession?.workoutDay?.dayNumber ?? null,
+              programName: s.workoutSession?.workoutDay?.week?.program?.name ?? null,
             })),
           }));
         })
@@ -997,6 +1018,11 @@ export function WorkoutLogClient({
                                     <span key={i} className="text-muted-foreground text-xs">
                                       Set {s.setNumber}: {s.reps ?? "—"}×{s.weight ?? "—"} lb
                                       {s.rir != null ? ` RIR${s.rir}` : ""}
+                                      {(s.weekNumber != null || s.dayNumber != null) && (
+                                        <span className="ml-1">
+                                          · W{s.weekNumber ?? "?"} D{s.dayNumber ?? "?"}
+                                        </span>
+                                      )}
                                     </span>
                                   ))}
                                 </div>
@@ -1453,6 +1479,12 @@ export function WorkoutLogClient({
                           <span key={i} className="text-muted-foreground text-xs">
                             Set {s.setNumber}: {s.reps ?? "—"}×{s.weight ?? "—"} lb{s.rir != null ? ` RIR${s.rir}` : ""}
                             {orm != null && <span className="ml-1">· est. 1RM: {orm} lb</span>}
+                            {(s.weekNumber != null || s.dayNumber != null) && (
+                              <span className="ml-1">
+                                · W{s.weekNumber ?? "?"} D{s.dayNumber ?? "?"}
+                              </span>
+                            )}
+                            {s.programName ? <span className="ml-1">· {s.programName}</span> : null}
                             {s.completedAt && (
                               <span className="ml-1 opacity-80">
                                 · {new Date(s.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}

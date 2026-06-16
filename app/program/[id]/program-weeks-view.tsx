@@ -8,8 +8,14 @@ import { Button } from "@/components/ui/button";
 import { ChevronRight, Copy, Plus, Trash2, GripVertical, Pencil } from "lucide-react";
 import { pickCurrentWeekId } from "@/lib/program/current-week";
 
-type Day = { id: string; dayNumber: number; name: string | null };
-type Week = { id: string; weekNumber: number; startDate: string | null; days: Day[] };
+type Day = { id: string; dayNumber: number; name: string | null; hasLoggedActivity?: boolean };
+type Week = {
+  id: string;
+  weekNumber: number;
+  startDate: string | null;
+  hasLoggedActivity?: boolean;
+  days: Day[];
+};
 
 function formatWeekDate(isoDate: string | null): string {
   if (!isoDate) return "";
@@ -190,6 +196,16 @@ export function ProgramWeeksView({
                   <GripVertical className="h-4 w-4" />
                 </span>
                 <CardTitle className="text-lg">Week {w.weekNumber}</CardTitle>
+                {w.id === currentWeekId && (
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    Current
+                  </span>
+                )}
+                {w.hasLoggedActivity && (
+                  <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                    Logged
+                  </span>
+                )}
               </div>
               {editingWeekId === w.id ? (
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -264,9 +280,14 @@ export function ProgramWeeksView({
                   <li key={d.id}>
                     <Button variant="ghost" className="w-full justify-between" asChild>
                       <Link href={`/workout/${d.id}`}>
-                        <span>
+                        <span className="inline-flex items-center gap-2">
                           Day {d.dayNumber}
                           {d.name && ` — ${d.name}`}
+                          {d.hasLoggedActivity ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                              Logged
+                            </span>
+                          ) : null}
                         </span>
                         <ChevronRight className="h-4 w-4" />
                       </Link>

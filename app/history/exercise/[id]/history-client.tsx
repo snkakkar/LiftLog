@@ -90,6 +90,13 @@ export function HistoryClient({
                               · {s.workoutSession.workoutDay.week.program.name}
                             </span>
                           )}
+                          {(s.workoutSession?.workoutDay?.week?.weekNumber != null ||
+                            s.workoutSession?.workoutDay?.dayNumber != null) && (
+                            <span className="text-muted-foreground">
+                              · W{s.workoutSession?.workoutDay?.week?.weekNumber ?? "?"} D
+                              {s.workoutSession?.workoutDay?.dayNumber ?? "?"}
+                            </span>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"

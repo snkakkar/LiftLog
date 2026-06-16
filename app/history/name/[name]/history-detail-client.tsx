@@ -37,7 +37,8 @@ type SetRecord = {
   completedAt: string;
   workoutSession?: {
     workoutDay?: {
-      week?: { program?: { name: string } };
+      week?: { program?: { name: string }; weekNumber?: number };
+      dayNumber?: number;
     };
   };
 };
@@ -541,6 +542,13 @@ export function HistoryDetailClient({
                             {s.workoutSession?.workoutDay?.week?.program?.name && (
                               <span className="text-muted-foreground truncate">
                                 · {s.workoutSession.workoutDay.week.program.name}
+                              </span>
+                            )}
+                            {(s.workoutSession?.workoutDay?.week?.weekNumber != null ||
+                              s.workoutSession?.workoutDay?.dayNumber != null) && (
+                              <span className="text-muted-foreground">
+                                · W{s.workoutSession?.workoutDay?.week?.weekNumber ?? "?"} D
+                                {s.workoutSession?.workoutDay?.dayNumber ?? "?"}
                               </span>
                             )}
                             <Button
