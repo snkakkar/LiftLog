@@ -89,6 +89,10 @@ type PreviousLog = {
   completedAt: string;
 }[];
 
+function getBestPreviousSet(previous: PreviousLog, setNumber: number) {
+  return previous.find((s) => s.setNumber === setNumber) ?? previous[0];
+}
+
 /** RIR-adjusted 1RM via shared math (treats RIR as reps left in tank). */
 function est1RM(
   weight: number | null | undefined,
@@ -1092,7 +1096,10 @@ export function WorkoutLogClient({
                                     initialWeight={
                                       existingA?.weight ??
                                       tmplA.targetWeight ??
-                                      (prevA[0]?.weight != null ? prevA[0]?.weight : undefined)
+                                      (() => {
+                                        const matched = getBestPreviousSet(prevA, sn);
+                                        return matched?.weight != null ? matched.weight : undefined;
+                                      })()
                                     }
                                     initialRir={existingA?.rir ?? tmplA.targetRir ?? undefined}
                                     initialIsFormDeload={existingA?.isFormDeload ?? null}
@@ -1125,7 +1132,10 @@ export function WorkoutLogClient({
                                     initialWeight={
                                       existingB?.weight ??
                                       tmplB.targetWeight ??
-                                      (prevB[0]?.weight != null ? prevB[0]?.weight : undefined)
+                                      (() => {
+                                        const matched = getBestPreviousSet(prevB, sn);
+                                        return matched?.weight != null ? matched.weight : undefined;
+                                      })()
                                     }
                                     initialRir={existingB?.rir ?? tmplB.targetRir ?? undefined}
                                     initialIsFormDeload={existingB?.isFormDeload ?? null}
@@ -1457,7 +1467,7 @@ export function WorkoutLogClient({
                 <div className="space-y-3">
                   {((Array.isArray(ex.templateSets) && ex.templateSets.length > 0) ? ex.templateSets : [{ id: "", setNumber: 1, targetReps: null, targetWeight: null, targetRir: null }]).map((tmpl) => {
                     const existing = logged.find((l) => l.setNumber === tmpl.setNumber);
-                    const lastWeight = previous[0]?.weight;
+                    const matchedPrevious = getBestPreviousSet(previous, tmpl.setNumber);
                     const setId = tmpl && typeof tmpl === "object" && "id" in tmpl && tmpl.id ? String(tmpl.id) : "";
                     const templateSetsList = Array.isArray(ex.templateSets) ? ex.templateSets : [];
                     const orderedSetIds = templateSetsList.map((s) => s && (s as { id?: string }).id).filter(Boolean) as string[];
@@ -1491,9 +1501,9 @@ export function WorkoutLogClient({
                             targetReps={tmpl.targetReps}
                             targetWeight={tmpl.targetWeight}
                             targetRir={tmpl.targetRir ?? null}
-                            initialReps={existing?.reps ?? tmpl.targetReps ?? undefined}
-                            initialWeight={existing?.weight ?? tmpl.targetWeight ?? (lastWeight != null ? lastWeight : undefined)}
-                            initialRir={existing?.rir ?? tmpl.targetRir ?? undefined}
+                            initialReps={existing?.reps ?? tmpl.targetReps ?? (matchedPrevious?.reps ?? undefined)}
+                            initialWeight={existing?.weight ?? tmpl.targetWeight ?? (matchedPrevious?.weight ?? undefined)}
+                            initialRir={existing?.rir ?? tmpl.targetRir ?? (matchedPrevious?.rir ?? undefined)}
                             initialIsFormDeload={existing?.isFormDeload ?? null}
                             isBodyweight={isBodyweightExercise(safeExerciseName(ex.name))}
                             bodyWeightLb={bodyWeightLb}

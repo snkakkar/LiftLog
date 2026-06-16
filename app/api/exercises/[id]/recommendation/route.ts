@@ -24,31 +24,43 @@ export async function GET(
       return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
     }
 
-    const whereClause =
+    const sameNameExercises = await prisma.exercise.findMany({
+      where: { name: exercise.name, ...userScope.exercise(userId) },
+      select: { id: true },
+    });
+    const exerciseIds = sameNameExercises.map((e) => e.id);
+    if (!exerciseIds.includes(exercise.id)) exerciseIds.push(exercise.id);
+
+    const baseWhere = {
+      exerciseId: { in: exerciseIds },
+      isWarmup: { not: true },
+      isFormDeload: { not: true },
+      ...userScope.loggedSet(userId),
+    } as const;
+
+    const recentFromProgram =
       programId && currentWeekNumber != null && !isNaN(currentWeekNumber)
-        ? {
-            exerciseId,
-            isWarmup: { not: true },
-            isFormDeload: { not: true },
-            workoutSession: {
-              workoutDay: {
-                week: {
-                  programId,
-                  program: { userId },
-                  weekNumber: { lt: currentWeekNumber },
+        ? await prisma.loggedSet.findMany({
+            where: {
+              ...baseWhere,
+              workoutSession: {
+                workoutDay: {
+                  week: {
+                    programId,
+                    program: { userId },
+                  },
                 },
               },
             },
-          }
-        : {
-            exerciseId,
-            isWarmup: { not: true },
-            isFormDeload: { not: true },
-            ...userScope.loggedSet(userId),
-          };
+            orderBy: { completedAt: "desc" },
+            take: 10,
+          })
+        : [];
 
-    const lastSets = await prisma.loggedSet.findMany({
-      where: whereClause,
+    const lastSets = recentFromProgram.length
+      ? recentFromProgram
+      : await prisma.loggedSet.findMany({
+          where: baseWhere,
       orderBy: { completedAt: "desc" },
       take: 10,
     });

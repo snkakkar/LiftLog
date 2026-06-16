@@ -44,4 +44,17 @@ describe("getProgressionSuggestion", () => {
     expect(suggestion).not.toContain("increase weight");
     expect(suggestion).toMatch(/beat last reps|8–10|10/);
   });
+
+  it("uses newest logged set for beat-last-reps guidance", () => {
+    const { suggestion } = getProgressionSuggestion(
+      [{ targetReps: 8, targetWeight: 50, targetRir: 0 }],
+      [
+        // newest-first input
+        { reps: 7, weight: 55, rir: 1 },
+        { reps: 9, weight: 50, rir: 0 },
+      ]
+    );
+    expect(suggestion).toContain("55 lb");
+    expect(suggestion).toContain("(7 → 8)");
+  });
 });

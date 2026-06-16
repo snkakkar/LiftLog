@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUserId, userScope } from "@/lib/auth";
+import { selectRecentHistory } from "@/lib/logged-sets/recent-history";
 
 /** GET ?exerciseId=... & ?exerciseName=... & optional ?programId=... & ?currentWeekNumber=...
- *  Returns last logged sets for this exercise. If programId and currentWeekNumber are provided,
- *  prefers sets from the same program in previous weeks (e.g. Week 8 when viewing Week 9). */
+ *  Returns most recent logged sets for this exercise.
+ *  Week boundaries are used for structure only and never block latest-history lookup. */
 export async function GET(request: NextRequest) {
   const userId = await requireUserId();
   const exerciseId = request.nextUrl.searchParams.get("exerciseId");
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
     ...userScope.loggedSet(userId),
   } as const;
 
-  // Prefer same program, previous weeks only (e.g. Week 8 when viewing Week 9).
+  // Prefer same program context first, but never filter out by week number.
   if (programId && currentWeekNumber != null && !isNaN(currentWeekNumber)) {
     const setsFromProgram = await prisma.loggedSet.findMany({
       where: {
@@ -55,7 +56,6 @@ export async function GET(request: NextRequest) {
             week: {
               programId,
               program: { userId },
-              weekNumber: { lt: currentWeekNumber },
             },
           },
         },
@@ -72,12 +72,10 @@ export async function GET(request: NextRequest) {
         },
       },
     });
-    const withData = setsFromProgram.filter(
-      (s) => (s.reps != null && s.reps > 0) || (s.weight != null)
-    );
-    // Limit to 2 weeks from most recent log (relative window)
-    const limited = limitToTwoWeeksFromLatest(withData);
-    return NextResponse.json(limited.slice(0, 20));
+    const withData = selectRecentHistory(setsFromProgram);
+    if (withData.length > 0) {
+      return NextResponse.json(withData);
+    }
   }
 
   const sets = await prisma.loggedSet.findMany({
@@ -94,18 +92,6 @@ export async function GET(request: NextRequest) {
       },
     },
   });
-  const withData = sets.filter(
-    (s) => (s.reps != null && s.reps > 0) || (s.weight != null)
-  );
-  const limited = limitToTwoWeeksFromLatest(withData);
-  return NextResponse.json(limited.slice(0, 20));
-}
-
-/** Keep only sets within 2 weeks of the most recent set (so we always show recent history when it exists). */
-function limitToTwoWeeksFromLatest<T extends { completedAt: Date }>(sets: T[]): T[] {
-  if (sets.length === 0) return [];
-  const latest = new Date(sets[0].completedAt).getTime();
-  const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
-  const cutoff = latest - twoWeeksMs;
-  return sets.filter((s) => new Date(s.completedAt).getTime() >= cutoff);
+  const withData = selectRecentHistory(sets);
+  return NextResponse.json(withData);
 }

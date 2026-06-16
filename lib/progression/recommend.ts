@@ -50,8 +50,10 @@ export function getProgressionSuggestion(
 
   if (templateWorking.length === 0) return { suggestion: null, repRangeText };
 
-  const lastWeight = working[working.length - 1]?.weight;
-  const lastReps = working[working.length - 1]?.reps;
+  // Callers provide sets newest-first, so index 0 is the true "last lift".
+  const latestSet = working[0];
+  const lastWeight = latestSet?.weight;
+  const lastReps = latestSet?.reps;
   const targetWeight = templateWorking[0]?.targetWeight;
   const targetRir = templateWorking[0]?.targetRir ?? 0;
   const range = getRepRangeFromTarget(targetReps);

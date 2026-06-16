@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronRight, Copy, Plus, Trash2, GripVertical, Pencil } from "lucide-react";
+import { pickCurrentWeekId } from "@/lib/program/current-week";
 
 type Day = { id: string; dayNumber: number; name: string | null };
 type Week = { id: string; weekNumber: number; startDate: string | null; days: Day[] };
@@ -30,6 +31,14 @@ export function ProgramWeeksView({
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null);
   const [editDateValue, setEditDateValue] = useState("");
   const [dateSaving, setDateSaving] = useState(false);
+  const currentWeekRef = useRef<HTMLDivElement | null>(null);
+
+  const currentWeekId = useMemo(() => pickCurrentWeekId(weeks), [weeks]);
+
+  useEffect(() => {
+    if (!currentWeekRef.current) return;
+    currentWeekRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [currentWeekId]);
 
   const handleDuplicateWeek = async (sourceWeekId: string) => {
     try {
@@ -162,6 +171,7 @@ export function ProgramWeeksView({
       {weeks.map((w) => (
         <Card
           key={w.id}
+          ref={w.id === currentWeekId ? currentWeekRef : undefined}
           onDragOver={(e) => handleDragOver(e, w.id)}
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, w.id)}
