@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUserId, userScope } from "@/lib/auth";
+import { shouldForkExerciseIdentity } from "@/lib/exercises/rename-policy";
 
 /** DELETE - Remove exercise from the workout day (template sets and logged sets for this exercise are removed). */
 export async function DELETE(
@@ -34,6 +35,7 @@ export async function PATCH(
   const userId = await requireUserId();
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
+  const createNewOnRename = body.createNewOnRename === true;
   let data: {
     name?: string;
     substitution1?: string | null;
@@ -62,6 +64,64 @@ export async function PATCH(
     where: { id, ...userScope.exercise(userId) },
   });
   if (!exercise) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+  if (createNewOnRename && typeof data.name === "string" && data.name && data.name !== exercise.name) {
+    const hasLogs = await prisma.loggedSet.findFirst({
+      where: { exerciseId: exercise.id },
+      select: { id: true },
+    });
+    if (!shouldForkExerciseIdentity(Boolean(hasLogs))) {
+      return NextResponse.json(
+        { error: "Cannot rename an exercise with existing logs in-place. Use future-week apply flow." },
+        { status: 409 }
+      );
+    }
+
+    const replacement = await prisma.$transaction(async (tx) => {
+      const created = await tx.exercise.create({
+        data: {
+          workoutDayId: exercise.workoutDayId,
+          name: data.name as string,
+          orderIndex: exercise.orderIndex,
+          substitution1: data.substitution1 !== undefined ? data.substitution1 : exercise.substitution1,
+          substitution2: data.substitution2 !== undefined ? data.substitution2 : exercise.substitution2,
+          supersetGroupId: exercise.supersetGroupId,
+        },
+      });
+
+      const templateSets = await tx.exerciseSet.findMany({
+        where: { exerciseId: exercise.id },
+        orderBy: { setNumber: "asc" },
+      });
+      if (templateSets.length > 0) {
+        await tx.exerciseSet.createMany({
+          data: templateSets.map((s) => ({
+            exerciseId: created.id,
+            setNumber: s.setNumber,
+            targetReps: s.targetReps,
+            targetRepsMin: s.targetRepsMin,
+            targetWeight: s.targetWeight,
+            targetRir: s.targetRir,
+          })),
+        });
+      } else {
+        await tx.exerciseSet.create({
+          data: {
+            exerciseId: created.id,
+            setNumber: 1,
+            targetReps: null,
+            targetWeight: null,
+            targetRir: null,
+          },
+        });
+      }
+
+      await tx.exercise.delete({ where: { id: exercise.id } });
+      return created;
+    });
+
+    return NextResponse.json(replacement);
+  }
 
   if (data.workoutDayId != null && data.workoutDayId !== exercise.workoutDayId && exercise.supersetGroupId) {
     await prisma.exercise.updateMany({

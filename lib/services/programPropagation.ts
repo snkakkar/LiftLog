@@ -185,12 +185,44 @@ async function propagateRename(
   for (const week of weeks) {
     const targetDay = week.days[0];
     if (!targetDay) continue;
-    // Rename intentionally still applies even if the day has logs — the user's intent is
-    // "this exercise is now called X going forward". Logged sets reference exerciseId, not
-    // name, so logs remain attached to the renamed exercise correctly.
+    if (dayHasLoggedSets(targetDay)) continue;
     const tgtEx = findByName(targetDay.exercises, oldName);
     if (!tgtEx) continue;
-    await prisma.exercise.update({ where: { id: tgtEx.id }, data: { name: trimmed } });
+
+    const templateSets = tgtEx.templateSets;
+    const created = await prisma.exercise.create({
+      data: {
+        workoutDayId: targetDay.id,
+        name: trimmed,
+        orderIndex: tgtEx.orderIndex,
+        substitution1: tgtEx.substitution1,
+        substitution2: tgtEx.substitution2,
+        supersetGroupId: tgtEx.supersetGroupId,
+      },
+    });
+    if (templateSets.length > 0) {
+      await prisma.exerciseSet.createMany({
+        data: templateSets.map((s) => ({
+          exerciseId: created.id,
+          setNumber: s.setNumber,
+          targetReps: s.targetReps,
+          targetRepsMin: s.targetRepsMin,
+          targetWeight: s.targetWeight,
+          targetRir: s.targetRir,
+        })),
+      });
+    } else {
+      await prisma.exerciseSet.create({
+        data: {
+          exerciseId: created.id,
+          setNumber: 1,
+          targetReps: null,
+          targetWeight: null,
+          targetRir: null,
+        },
+      });
+    }
+    await prisma.exercise.delete({ where: { id: tgtEx.id } });
     updatedWeeks++;
   }
   return { ok: true, updatedWeeks };

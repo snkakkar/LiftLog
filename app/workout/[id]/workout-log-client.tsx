@@ -37,6 +37,7 @@ import {
   maxDisplayedSetCount,
   templateForSetNumber,
 } from "@/lib/exercises/blocks";
+import { pickPrefillValue } from "@/lib/workout/prefill";
 
 type TemplateSet = {
   id: string;
@@ -331,9 +332,13 @@ export function WorkoutLogClient({
     const res = await fetch(`/api/exercises/${exId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify({ name: trimmed, createNewOnRename: true }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (body?.error) alert(body.error);
+      return;
+    }
     setRenamingExId(null);
     setRenameValue("");
     router.refresh();
@@ -1118,16 +1123,11 @@ export function WorkoutLogClient({
                                     targetReps={tmplA.targetReps}
                                     targetWeight={tmplA.targetWeight}
                                     targetRir={tmplA.targetRir ?? null}
-                                    initialReps={existingA?.reps ?? tmplA.targetReps ?? undefined}
+                                    initialReps={pickPrefillValue(existingA?.reps, getBestPreviousSet(prevA, sn)?.reps, tmplA.targetReps)}
                                     initialWeight={
-                                      existingA?.weight ??
-                                      tmplA.targetWeight ??
-                                      (() => {
-                                        const matched = getBestPreviousSet(prevA, sn);
-                                        return matched?.weight != null ? matched.weight : undefined;
-                                      })()
+                                      pickPrefillValue(existingA?.weight, getBestPreviousSet(prevA, sn)?.weight, tmplA.targetWeight)
                                     }
-                                    initialRir={existingA?.rir ?? tmplA.targetRir ?? undefined}
+                                    initialRir={pickPrefillValue(existingA?.rir, getBestPreviousSet(prevA, sn)?.rir, tmplA.targetRir)}
                                     initialIsFormDeload={existingA?.isFormDeload ?? null}
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exA.name))}
                                     bodyWeightLb={bodyWeightLb}
@@ -1154,16 +1154,11 @@ export function WorkoutLogClient({
                                     targetReps={tmplB.targetReps}
                                     targetWeight={tmplB.targetWeight}
                                     targetRir={tmplB.targetRir ?? null}
-                                    initialReps={existingB?.reps ?? tmplB.targetReps ?? undefined}
+                                    initialReps={pickPrefillValue(existingB?.reps, getBestPreviousSet(prevB, sn)?.reps, tmplB.targetReps)}
                                     initialWeight={
-                                      existingB?.weight ??
-                                      tmplB.targetWeight ??
-                                      (() => {
-                                        const matched = getBestPreviousSet(prevB, sn);
-                                        return matched?.weight != null ? matched.weight : undefined;
-                                      })()
+                                      pickPrefillValue(existingB?.weight, getBestPreviousSet(prevB, sn)?.weight, tmplB.targetWeight)
                                     }
-                                    initialRir={existingB?.rir ?? tmplB.targetRir ?? undefined}
+                                    initialRir={pickPrefillValue(existingB?.rir, getBestPreviousSet(prevB, sn)?.rir, tmplB.targetRir)}
                                     initialIsFormDeload={existingB?.isFormDeload ?? null}
                                     isBodyweight={isBodyweightExercise(safeExerciseName(exB.name))}
                                     bodyWeightLb={bodyWeightLb}
@@ -1533,9 +1528,9 @@ export function WorkoutLogClient({
                             targetReps={tmpl.targetReps}
                             targetWeight={tmpl.targetWeight}
                             targetRir={tmpl.targetRir ?? null}
-                            initialReps={existing?.reps ?? tmpl.targetReps ?? (matchedPrevious?.reps ?? undefined)}
-                            initialWeight={existing?.weight ?? tmpl.targetWeight ?? (matchedPrevious?.weight ?? undefined)}
-                            initialRir={existing?.rir ?? tmpl.targetRir ?? (matchedPrevious?.rir ?? undefined)}
+                            initialReps={pickPrefillValue(existing?.reps, matchedPrevious?.reps, tmpl.targetReps)}
+                            initialWeight={pickPrefillValue(existing?.weight, matchedPrevious?.weight, tmpl.targetWeight)}
+                            initialRir={pickPrefillValue(existing?.rir, matchedPrevious?.rir, tmpl.targetRir)}
                             initialIsFormDeload={existing?.isFormDeload ?? null}
                             isBodyweight={isBodyweightExercise(safeExerciseName(ex.name))}
                             bodyWeightLb={bodyWeightLb}

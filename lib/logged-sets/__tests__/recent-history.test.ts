@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectRecentHistory } from "../recent-history";
+import { selectRecentHistory, selectRecentWorkoutHistory } from "../recent-history";
 
 describe("selectRecentHistory", () => {
   it("keeps older logs when they are the latest available history", () => {
@@ -23,5 +23,19 @@ describe("selectRecentHistory", () => {
       1
     );
     expect(result).toEqual([{ reps: 5, weight: 225 }]);
+  });
+
+  it("keeps sets from only the latest two workout sessions", () => {
+    const result = selectRecentWorkoutHistory([
+      { workoutSessionId: "s3", reps: 8, weight: 200 },
+      { workoutSessionId: "s3", reps: 7, weight: 190 },
+      { workoutSessionId: "s2", reps: 6, weight: 185 },
+      { workoutSessionId: "s1", reps: 5, weight: 180 },
+    ]);
+    expect(result).toEqual([
+      { workoutSessionId: "s3", reps: 8, weight: 200 },
+      { workoutSessionId: "s3", reps: 7, weight: 190 },
+      { workoutSessionId: "s2", reps: 6, weight: 185 },
+    ]);
   });
 });

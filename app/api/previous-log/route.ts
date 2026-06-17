@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUserId, userScope } from "@/lib/auth";
-import { selectRecentHistory } from "@/lib/logged-sets/recent-history";
+import { selectRecentWorkoutHistory } from "@/lib/logged-sets/recent-history";
 
 /** GET ?exerciseId=... & ?exerciseName=... & optional ?programId=... & ?currentWeekNumber=...
  *  Returns most recent logged sets for this exercise.
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
         },
       },
     });
-    const withData = selectRecentHistory(setsFromProgram);
+    const withData = selectRecentWorkoutHistory(setsFromProgram, 2);
     if (withData.length > 0) {
       return NextResponse.json(withData);
     }
@@ -92,6 +92,6 @@ export async function GET(request: NextRequest) {
       },
     },
   });
-  const withData = selectRecentHistory(sets);
+  const withData = selectRecentWorkoutHistory(sets, 2);
   return NextResponse.json(withData);
 }
